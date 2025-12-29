@@ -1,23 +1,23 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
 /**
  * Configuración de Firebase para DomicilioX
- * Credenciales del proyecto en Firebase Console
+ * Lee todas las credenciales desde variables de entorno
  */
 const firebaseConfig = {
-  apiKey: 'AIzaSyAy4FqXc9sKgjo2f9VEAGuQ6WqJHxVaS3g',
-  authDomain: 'domiciliox-85488.firebaseapp.com',
-  projectId: 'domiciliox-85488',
-  storageBucket: 'domiciliox-85488.firebasestorage.app',
-  messagingSenderId: '1066780088586',
-  appId: '1:1066780088586:web:168ec042714a03529e42f3'
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Inicializar Firebase
-const app = initializeApp(firebaseConfig);
+// Prevenir inicialización duplicada: solo crea app si no existe
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Inicializar Firestore
+// Inicializar Firestore con la app existente o nueva
 const db = getFirestore(app);
 
 export { db };
