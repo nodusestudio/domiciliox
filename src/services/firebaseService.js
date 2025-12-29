@@ -16,7 +16,7 @@ import toast from 'react-hot-toast';
 
 // ==================== CONFIGURACIÓN ADAPTADOR LOCAL ====================
 // Cambiar a 'true' para usar localStorage, 'false' para Firebase
-const USE_LOCAL_STORAGE = true;
+const USE_LOCAL_STORAGE = false;
 
 // ==================== UTILIDADES LOCALSTORAGE ====================
 const getLocalData = (key) => {
@@ -50,23 +50,23 @@ const getPedidosLocal = () => {
 // Versión FIREBASE
 const getPedidosFirebase = async () => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      return [];
-    }
-
+    console.log("Obteniendo pedidos desde Firebase...");
+    
+    // Primero intentar obtener todos los pedidos sin filtro de usuario
     const querySnapshot = await getDocs(
       query(
-        collection(db, pedidosCollection), 
-        where('userId', '==', userId),
+        collection(db, pedidosCollection),
         orderBy('fecha', 'desc')
       )
     );
-    return querySnapshot.docs.map(doc => ({
+    
+    const pedidos = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    console.log(`Total de pedidos encontrados en Firebase: ${pedidos.length}`);
+    return pedidos;
   } catch (error) {
     console.error('Error al obtener pedidos:', error);
     toast.error('Error al cargar pedidos');
@@ -208,22 +208,19 @@ const getRepartidoresLocal = () => {
 // Versión FIREBASE
 const getRepartidoresFirebase = async () => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      return [];
-    }
-
+    console.log("Obteniendo repartidores desde Firebase...");
+    
     const querySnapshot = await getDocs(
-      query(
-        collection(db, repartidoresCollection),
-        where('userId', '==', userId)
-      )
+      collection(db, repartidoresCollection)
     );
-    return querySnapshot.docs.map(doc => ({
+    
+    const repartidores = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    console.log(`Total de repartidores encontrados en Firebase: ${repartidores.length}`);
+    return repartidores;
   } catch (error) {
     console.error('Error al obtener repartidores:', error);
     toast.error('Error al cargar repartidores');
@@ -359,22 +356,19 @@ const getClientesLocal = () => {
 // Versión FIREBASE
 const getClientesFirebase = async () => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      return [];
-    }
-
+    console.log("Obteniendo clientes desde Firebase...");
+    
     const querySnapshot = await getDocs(
-      query(
-        collection(db, clientesCollection),
-        where('userId', '==', userId)
-      )
+      collection(db, clientesCollection)
     );
-    return querySnapshot.docs.map(doc => ({
+    
+    const clientes = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    console.log(`Total de clientes encontrados en Firebase: ${clientes.length}`);
+    return clientes;
   } catch (error) {
     console.error('Error al obtener clientes:', error);
     toast.error('Error al cargar clientes');

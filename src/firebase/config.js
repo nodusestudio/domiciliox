@@ -16,4 +16,13 @@ if (!firebaseConfig.apiKey) {
 }
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+// Verificar que estamos conectados al proyecto correcto
+console.log("Conectado a:", firebaseConfig.projectId);
+console.log("Variables de entorno cargadas:", {
+  apiKey: firebaseConfig.apiKey ? "✓ Cargada" : "✗ NO cargada",
+  authDomain: firebaseConfig.authDomain ? "✓ Cargada" : "✗ NO cargada",
+  projectId: firebaseConfig.projectId ? "✓ Cargada" : "✗ NO cargada"
+});
+
 export const db = getFirestore(app);

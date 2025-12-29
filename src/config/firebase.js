@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,6 +11,20 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
+// Verificación de seguridad para evitar que el panel se rompa en Vercel
+if (!firebaseConfig.apiKey) {
+  console.error("Error: Las variables de entorno no están cargadas en Vercel.");
+}
+
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+// Verificar que estamos conectados al proyecto correcto
+console.log("Conectado a:", firebaseConfig.projectId);
+console.log("Variables de entorno cargadas:", {
+  apiKey: firebaseConfig.apiKey ? "✓ Cargada" : "✗ NO cargada",
+  authDomain: firebaseConfig.authDomain ? "✓ Cargada" : "✗ NO cargada",
+  projectId: firebaseConfig.projectId ? "✓ Cargada" : "✗ NO cargada"
+});
+
 export const db = getFirestore(app);
 export const auth = getAuth(app);
