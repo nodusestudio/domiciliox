@@ -15,7 +15,7 @@ const firebaseConfig = {
 };
 
 // Prevenir inicialización duplicada: solo crea app si no existe
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Inicializar Firestore con la app existente o nueva
 const db = getFirestore(app);
