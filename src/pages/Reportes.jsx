@@ -20,6 +20,31 @@ export default function Reportes() {
     
     // Cargar historial automáticamente
     cargarHistorial();
+    
+    // Listener para detectar cambios en localStorage
+    const handleStorageChange = (e) => {
+      if (e.key === 'historial_jornadas') {
+        cargarHistorial();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Recargar cuando la ventana vuelve a tener foco
+    const handleFocus = () => {
+      cargarHistorial();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    // Recargar datos cada 5 segundos
+    const interval = setInterval(cargarHistorial, 5000);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const cargarHistorial = () => {

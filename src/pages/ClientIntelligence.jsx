@@ -23,6 +23,31 @@ export default function ClientIntelligence() {
 
   useEffect(() => {
     cargarPedidosHistoricos();
+    
+    // Listener para detectar cambios en localStorage (cuando se guardan jornadas)
+    const handleStorageChange = (e) => {
+      if (e.key === 'historial_jornadas' || e.key === 'pedidos') {
+        cargarPedidosHistoricos();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // También recargar cada vez que la ventana vuelve a tener foco
+    const handleFocus = () => {
+      cargarPedidosHistoricos();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    // Recargar datos cada 5 segundos para capturar cambios en la misma pestaña
+    const interval = setInterval(cargarPedidosHistoricos, 5000);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const cargarPedidosHistoricos = () => {
@@ -68,9 +93,18 @@ export default function ClientIntelligence() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold text-white mb-2">Inteligencia de Clientes</h2>
-        <p className="text-gray-400">Análisis avanzado de comportamiento y tendencias</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-white mb-2">Inteligencia de Clientes</h2>
+          <p className="text-gray-400">Análisis avanzado de comportamiento y tendencias</p>
+        </div>
+        <button
+          onClick={cargarPedidosHistoricos}
+          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-[#1557b0] text-white rounded-lg transition-colors font-semibold"
+        >
+          <Download className="w-4 h-4" />
+          Actualizar Datos
+        </button>
       </div>
 
       {/* Estadísticas Generales */}
