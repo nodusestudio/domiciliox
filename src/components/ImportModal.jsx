@@ -70,10 +70,36 @@ const ImportModal = ({ isOpen, onClose, onImport, requiredColumns = ['Nombre', '
         const columnMap = {};
 
         requiredColumns.forEach(required => {
-          const found = columns.find(col => 
-            col.toLowerCase().trim() === required.toLowerCase().trim() ||
-            col.toLowerCase().includes(required.toLowerCase())
-          );
+          let found = null;
+          
+          // Buscar coincidencias exactas o parciales con variaciones
+          if (required === 'Nombre') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'nombre' ||
+              col.toLowerCase().includes('nombre')
+            );
+          } else if (required === 'Dirección') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'direccion' ||
+              col.toLowerCase().trim() === 'dirección' ||
+              col.toLowerCase().includes('direccion') ||
+              col.toLowerCase().includes('dirección')
+            );
+          } else if (required === 'Teléfono') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'telefono' ||
+              col.toLowerCase().trim() === 'teléfono' ||
+              col.toLowerCase().trim() === 'whatsapp' ||
+              col.toLowerCase().includes('telefono') ||
+              col.toLowerCase().includes('teléfono') ||
+              col.toLowerCase().includes('whatsapp')
+            );
+          } else {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === required.toLowerCase().trim() ||
+              col.toLowerCase().includes(required.toLowerCase())
+            );
+          }
           
           if (found) {
             columnMap[required] = found;
@@ -127,10 +153,37 @@ const ImportModal = ({ isOpen, onClose, onImport, requiredColumns = ['Nombre', '
         const columnMap = {};
 
         requiredColumns.forEach(required => {
-          const found = columns.find(col => 
-            col.toLowerCase().trim() === required.toLowerCase().trim() ||
-            col.toLowerCase().includes(required.toLowerCase())
-          );
+          let found = null;
+          
+          // Buscar coincidencias exactas o parciales con variaciones
+          if (required === 'Nombre') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'nombre' ||
+              col.toLowerCase().includes('nombre')
+            );
+          } else if (required === 'Dirección') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'direccion' ||
+              col.toLowerCase().trim() === 'dirección' ||
+              col.toLowerCase().includes('direccion') ||
+              col.toLowerCase().includes('dirección')
+            );
+          } else if (required === 'Teléfono') {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === 'telefono' ||
+              col.toLowerCase().trim() === 'teléfono' ||
+              col.toLowerCase().trim() === 'whatsapp' ||
+              col.toLowerCase().includes('telefono') ||
+              col.toLowerCase().includes('teléfono') ||
+              col.toLowerCase().includes('whatsapp')
+            );
+          } else {
+            found = columns.find(col => 
+              col.toLowerCase().trim() === required.toLowerCase().trim() ||
+              col.toLowerCase().includes(required.toLowerCase())
+            );
+          }
+          
           if (found) {
             columnMap[required] = found;
           }
