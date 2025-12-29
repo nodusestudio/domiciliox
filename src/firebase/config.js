@@ -1,10 +1,6 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
 
-/**
- * Configuración de Firebase para DomicilioX
- * Lee todas las credenciales desde variables de entorno
- */
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -14,10 +10,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Prevenir inicialización duplicada: solo crea app si no existe
+// Verificación de seguridad para evitar que el panel se rompa en Vercel
+if (!firebaseConfig.apiKey) {
+  console.error("Error: Las variables de entorno no están cargadas en Vercel.");
+}
+
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-
-// Inicializar Firestore con la app existente o nueva
-const db = getFirestore(app);
-
-export { db };
+export const db = getFirestore(app);
