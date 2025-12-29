@@ -7,17 +7,19 @@ import {
   BarChart3,
   Settings,
   Menu,
-  X
+  X,
+  Brain
 } from 'lucide-react';
 import Logo from './Logo';
 
 const Sidebar = ({ isOpen, setIsOpen, activeSection, setActiveSection }) => {
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'panel', label: 'Panel', icon: LayoutDashboard },
     { id: 'pedidos', label: 'Pedidos', icon: Package },
     { id: 'clientes', label: 'Clientes', icon: Users },
     { id: 'repartidores', label: 'Repartidores', icon: Truck },
-    { id: 'analytics', label: 'Análisis', icon: BarChart3 },
+    { id: 'intelligence', label: 'Inteligencia', icon: Brain },
+    { id: 'analytics', label: 'Reportes', icon: BarChart3 },
     { id: 'settings', label: 'Configuración', icon: Settings },
   ];
 

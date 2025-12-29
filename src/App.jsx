@@ -3,10 +3,16 @@ import { Toaster } from 'react-hot-toast';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
+import Orders from './pages/Orders';
+import Clients from './pages/Clients';
+import Repartidores from './pages/Repartidores';
+import Reportes from './pages/Reportes';
+import ClientIntelligence from './pages/ClientIntelligence';
+import Settings from './pages/Settings';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeSection, setActiveSection] = useState('panel');
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -14,43 +20,20 @@ function App() {
 
   const renderContent = () => {
     switch (activeSection) {
-      case 'dashboard':
+      case 'panel':
         return <Dashboard />;
       case 'pedidos':
-        return (
-          <div className="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h2 className="text-2xl font-bold text-white mb-4">Pedidos</h2>
-            <p className="text-gray-400">Gestión de pedidos de domicilio</p>
-          </div>
-        );
+        return <Orders />;
       case 'clientes':
-        return (
-          <div className="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h2 className="text-2xl font-bold text-white mb-4">Clientes</h2>
-            <p className="text-gray-400">Administración de clientes</p>
-          </div>
-        );
+        return <Clients />;
       case 'repartidores':
-        return (
-          <div className="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h2 className="text-2xl font-bold text-white mb-4">Repartidores</h2>
-            <p className="text-gray-400">Gestión de equipo de reparto</p>
-          </div>
-        );
+        return <Repartidores />;
       case 'analytics':
-        return (
-          <div className="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h2 className="text-2xl font-bold text-white mb-4">Análisis</h2>
-            <p className="text-gray-400">Reportes y estadísticas</p>
-          </div>
-        );
+        return <Reportes />;
+      case 'intelligence':
+        return <ClientIntelligence />;
       case 'settings':
-        return (
-          <div className="bg-dark-card rounded-lg p-6 border border-dark-border">
-            <h2 className="text-2xl font-bold text-white mb-4">Configuración</h2>
-            <p className="text-gray-400">Ajustes del sistema</p>
-          </div>
-        );
+        return <Settings />;
       default:
         return <Dashboard />;
     }

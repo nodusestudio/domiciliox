@@ -13,7 +13,7 @@ export default {
         
         // Modo oscuro (usado por defecto)
         'dark-bg': '#111827',      // Fondo principal modo oscuro
-        'dark-card': '#1f2937',    // Tarjetas y contenedores
+        'dark-card': '#112937',    // Tarjetas y contenedores
         'dark-border': '#374151',  // Bordes y separadores
         
         // Estados
