@@ -233,64 +233,65 @@ const Settings = () => {
   const t = translations[currentLanguage];
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-white mb-2">{t.settings}</h2>
-        <p className="text-gray-400">Personaliza DomicilioX según tus necesidades</p>
+      <div className="mb-4 sm:mb-6">
+        <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">{t.settings}</h2>
+        <p className="text-sm sm:text-base text-gray-400">Personaliza DomicilioX según tus necesidades</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Columna Izquierda - Datos de la Empresa */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           
           {/* Tarjeta o Formulario de Datos de la Empresa */}
-          <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <Building2 className="w-6 h-6 text-primary" />
-                <h3 className="text-xl font-bold text-white">{t.companyData}</h3>
+          <div className="bg-dark-card border border-dark-border rounded-xl shadow-lg p-4 sm:p-6 w-full">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+                <h3 className="text-lg sm:text-xl font-bold text-white">{t.companyData}</h3>
               </div>
               
               {!isEditing && (
                 <button
                   onClick={handleEdit}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-[#1557b0] text-white rounded-lg transition-colors text-sm font-semibold"
+                  className="flex items-center gap-2 px-4 sm:px-5 h-11 sm:h-12 bg-primary hover:bg-[#1557b0] text-white rounded-xl transition-all shadow-md hover:shadow-lg active:scale-95 text-sm sm:text-base font-semibold touch-manipulation"
                 >
-                  <Edit2 className="w-4 h-4" />
-                  {t.edit}
+                  <Edit2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span className="hidden sm:inline">{t.edit}</span>
+                  <span className="sm:hidden">Editar</span>
                 </button>
               )}
             </div>
 
             {!isEditing ? (
               // Vista de Tarjeta de Información
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 p-4 bg-[#374151] rounded-lg">
-                  <Building2 className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-400 mb-1">Nombre de la Empresa</p>
-                    <p className="text-white font-medium">
+              <div className="space-y-3 sm:space-y-4">
+                <div className="flex items-start gap-3 p-3 sm:p-4 bg-[#374151] rounded-xl shadow-sm">
+                  <Building2 className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs sm:text-sm text-gray-400 mb-1">Nombre de la Empresa</p>
+                    <p className="text-sm sm:text-base text-white font-medium break-words">
                       {companyData.nombre || t.noData}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-4 bg-[#374151] rounded-lg">
-                  <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-400 mb-1">Teléfono</p>
-                    <p className="text-white font-medium">
+                <div className="flex items-start gap-3 p-3 sm:p-4 bg-[#374151] rounded-xl shadow-sm">
+                  <Phone className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs sm:text-sm text-gray-400 mb-1">Teléfono</p>
+                    <p className="text-sm sm:text-base text-white font-medium break-words">
                       {companyData.telefono || t.noData}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-4 bg-[#374151] rounded-lg">
-                  <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-400 mb-1">Dirección Principal</p>
-                    <p className="text-white font-medium">
+                <div className="flex items-start gap-3 p-3 sm:p-4 bg-[#374151] rounded-xl shadow-sm">
+                  <MapPin className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs sm:text-sm text-gray-400 mb-1">Dirección Principal</p>
+                    <p className="text-sm sm:text-base text-white font-medium break-words">
                       {companyData.direccion || t.noData}
                     </p>
                   </div>
@@ -310,7 +311,7 @@ const Settings = () => {
                     value={editData.nombre}
                     onChange={handleEditDataChange}
                     placeholder="Ej: DomicilioX S.A.S."
-                    className="w-full px-4 py-3 bg-[#374151] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                    className="w-full px-4 py-3 sm:py-3.5 bg-[#374151] border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-base shadow-sm touch-manipulation"
                   />
                 </div>
 
@@ -320,14 +321,15 @@ const Settings = () => {
                     {t.phone}
                   </label>
                   <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
                     <input
                       type="tel"
                       name="telefono"
                       value={editData.telefono}
                       onChange={handleEditDataChange}
                       placeholder="Ej: +57 300 123 4567"
-                      className="w-full pl-10 pr-4 py-3 bg-[#374151] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      inputMode="numeric"
+                      className="w-full pl-10 pr-4 py-3 sm:py-3.5 bg-[#374151] border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-base shadow-sm touch-manipulation"
                     />
                   </div>
                 </div>
@@ -338,31 +340,31 @@ const Settings = () => {
                     {t.address}
                   </label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
+                    <MapPin className="absolute left-3 top-3 text-gray-400 w-5 h-5 pointer-events-none" />
                     <textarea
                       name="direccion"
                       value={editData.direccion}
                       onChange={handleEditDataChange}
                       placeholder="Ej: Calle 123 #45-67, Bogotá, Colombia"
-                      rows="2"
-                      className="w-full pl-10 pr-4 py-3 bg-[#374151] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all resize-none"
+                      rows="3"
+                      className="w-full pl-10 pr-4 py-3 bg-[#374151] border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent transition-all resize-none text-base shadow-sm touch-manipulation"
                     />
                   </div>
                 </div>
 
                 {/* Botones de Acción */}
-                <div className="flex gap-3 pt-4">
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
                   <button
                     onClick={handleSaveCompanyData}
                     disabled={isSyncing}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-[#1557b0] text-white rounded-lg transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 px-5 h-12 sm:h-14 bg-primary hover:bg-[#1557b0] text-white rounded-xl transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:scale-95 text-base touch-manipulation flex-1"
                   >
                     <Save className="w-5 h-5" />
                     {isSyncing ? 'Guardando...' : t.save}
                   </button>
                   <button
                     onClick={handleCancel}
-                    className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors font-semibold"
+                    className="flex items-center justify-center gap-2 px-5 h-12 sm:h-14 bg-gray-600 hover:bg-gray-700 text-white rounded-xl transition-all font-semibold shadow-md hover:shadow-lg active:scale-95 text-base touch-manipulation sm:flex-initial sm:min-w-[120px]"
                   >
                     <X className="w-5 h-5" />
                     {t.cancel}
@@ -374,27 +376,27 @@ const Settings = () => {
         </div>
 
         {/* Columna Derecha - Preferencias y Estado */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           
           {/* Tarjeta de Preferencias */}
-          <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Globe className="w-6 h-6 text-primary" />
-              <h3 className="text-xl font-bold text-white">{t.preferences}</h3>
+          <div className="bg-dark-card border border-dark-border rounded-xl shadow-lg p-4 sm:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+              <Globe className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+              <h3 className="text-lg sm:text-xl font-bold text-white">{t.preferences}</h3>
             </div>
 
             <div className="space-y-4">
               {/* Modo Oscuro/Claro */}
               <div>
-                <p className="text-sm text-gray-400 mb-3">{t.appearance}</p>
-                <div className="flex items-center justify-between p-3 bg-[#374151] rounded-lg">
+                <p className="text-xs sm:text-sm text-gray-400 mb-3">{t.appearance}</p>
+                <div className="flex items-center justify-between p-3 bg-[#374151] rounded-xl shadow-sm min-h-[48px]">
                   <div className="flex items-center gap-2">
                     {isDarkMode ? (
                       <Moon className="w-5 h-5 text-gray-300" />
                     ) : (
                       <Sun className="w-5 h-5 text-gray-300" />
                     )}
-                    <span className="text-white text-sm">
+                    <span className="text-white text-sm sm:text-base">
                       {isDarkMode ? t.darkMode : t.lightMode}
                     </span>
                   </div>
@@ -402,12 +404,12 @@ const Settings = () => {
                   {/* Switch Toggle */}
                   <button
                     onClick={handleThemeToggle}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors touch-manipulation ${
                       isDarkMode ? 'bg-primary' : 'bg-gray-500'
                     }`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-md ${
                         isDarkMode ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
@@ -417,11 +419,11 @@ const Settings = () => {
 
               {/* Idioma */}
               <div>
-                <p className="text-sm text-gray-400 mb-3">{t.language}</p>
+                <p className="text-xs sm:text-sm text-gray-400 mb-3">{t.language}</p>
                 <select
                   value={currentLanguage}
                   onChange={handleLanguageChange}
-                  className="w-full px-4 py-3 bg-[#374151] border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-primary focus:border-transparent transition-all cursor-pointer text-sm"
+                  className="w-full px-4 py-3 bg-[#374151] border border-gray-600 rounded-xl text-white focus:ring-2 focus:ring-primary focus:border-transparent transition-all cursor-pointer text-sm sm:text-base shadow-sm touch-manipulation h-12"
                 >
                   <option value="es">{t.spanish}</option>
                   <option value="en">{t.english}</option>
@@ -431,16 +433,16 @@ const Settings = () => {
           </div>
 
           {/* Estado de Sincronización */}
-          <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Database className="w-6 h-6 text-primary" />
-              <h3 className="text-xl font-bold text-white">{t.syncStatus}</h3>
+          <div className="bg-dark-card border border-dark-border rounded-xl shadow-lg p-4 sm:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-4">
+              <Database className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+              <h3 className="text-lg sm:text-xl font-bold text-white">{t.syncStatus}</h3>
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-[#374151] rounded-lg">
+              <div className="flex items-center justify-between p-3 bg-[#374151] rounded-xl shadow-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-300">Firebase Firestore</span>
+                  <span className="text-xs sm:text-sm text-gray-300">Firebase Firestore</span>
                   {isSyncing && (
                     <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                   )}
@@ -456,15 +458,15 @@ const Settings = () => {
           </div>
 
           {/* Seguridad */}
-          <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Shield className="w-6 h-6 text-primary" />
-              <h3 className="text-xl font-bold text-white">{t.security}</h3>
+          <div className="bg-dark-card border border-dark-border rounded-xl shadow-lg p-4 sm:p-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-4">
+              <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+              <h3 className="text-lg sm:text-xl font-bold text-white">{t.security}</h3>
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-[#374151] rounded-lg">
-                <span className="text-sm text-gray-300">{t.dataBackup}</span>
+              <div className="flex items-center justify-between p-3 bg-[#374151] rounded-xl shadow-sm">
+                <span className="text-xs sm:text-sm text-gray-300">{t.dataBackup}</span>
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               </div>
               <p className="text-xs text-gray-400">
