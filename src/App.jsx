@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
@@ -9,10 +9,17 @@ import Repartidores from './pages/Repartidores';
 import Reportes from './pages/Reportes';
 import ClientIntelligence from './pages/ClientIntelligence';
 import Settings from './pages/Settings';
+import { verificarConexionFirebase } from './services/firebaseService';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('panel');
+
+  // Verificar conexión a Firebase al iniciar la app
+  useEffect(() => {
+    console.log('🚀 Iniciando aplicación DomicilioX...');
+    verificarConexionFirebase();
+  }, []);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);

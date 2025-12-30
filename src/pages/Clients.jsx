@@ -8,7 +8,7 @@ import {
   addCliente, 
   updateCliente,
   deleteCliente, 
-  importarClientesLocal,
+  importarClientes,
   sincronizarConNube 
 } from '../services/firebaseService';
 
@@ -36,7 +36,9 @@ const Clients = () => {
   }, []);
 
   const cargarClientes = async () => {
+    console.log('🔄 Cargando clientes desde Firebase...');
     const clientesCargados = await getClientes();
+    console.log(`📊 ${clientesCargados.length} clientes cargados`);
     setClientes(clientesCargados || []);
   };
 
@@ -48,32 +50,42 @@ const Clients = () => {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (editingId) {
-      // Actualizar cliente existente
-      updateCliente(editingId, formData);
-    } else {
-      // Agregar nuevo cliente
-      addCliente(formData);
+    try {
+      if (editingId) {
+        // Actualizar cliente existente
+        await updateCliente(editingId, formData);
+      } else {
+        // Agregar nuevo cliente
+        await addCliente(formData);
+      }
+      
+      setFormData({
+        nombre: '',
+        direccion_habitual: '',
+        telefono: '',
+        email: ''
+      });
+      setEditingId(null);
+      setShowModal(false);
+      
+      // Recargar lista automáticamente
+      await cargarClientes();
+    } catch (error) {
+      console.error('Error al guardar cliente:', error);
     }
-    
-    setFormData({
-      nombre: '',
-      direccion_habitual: '',
-      telefono: '',
-      email: ''
-    });
-    setEditingId(null);
-    setShowModal(false);
-    cargarClientes(); // Recargar lista
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (confirm('¿Estás seguro de eliminar este cliente?')) {
-      deleteCliente(id);
-      cargarClientes(); // Recargar lista
+      try {
+        await deleteCliente(id);
+        await cargarClientes(); // Recargar lista
+      } catch (error) {
+        console.error('Error al eliminar cliente:', error);
+      }
     }
   };
 
@@ -93,14 +105,18 @@ const Clients = () => {
     setEditValue(cliente[field] || '');
   };
 
-  const handleCellBlur = () => {
+  const handleCellBlur = async () => {
     if (editingCell.id && editingCell.field) {
       const clienteActualizado = clientes.find(c => c.id === editingCell.id);
       if (clienteActualizado && clienteActualizado[editingCell.field] !== editValue) {
-        const datosActualizados = { [editingCell.field]: editValue };
-        updateCliente(editingCell.id, datosActualizados);
-        cargarClientes();
-        toast.success('Campo actualizado');
+        try {
+          const datosActualizados = { [editingCell.field]: editValue };
+          await updateCliente(editingCell.id, datosActualizados);
+          await cargarClientes();
+          toast.success('Campo actualizado');
+        } catch (error) {
+          console.error('Error al actualizar campo:', error);
+        }
       }
     }
     setEditingCell({ id: null, field: null });
@@ -116,35 +132,50 @@ const Clients = () => {
     }
   };
 
-  const handleImportFromModal = (data) => {
+  const handleImportFromModal = async (data) => {
     setLoading(true);
     setProgress(0);
-    setProgressMessage('Importando clientes...');
+    setProgressMessage('Importando clientes a Firebase...');
 
-    setTimeout(() => {
-      setProgress(50);
+    try {
       const clientesImportados = data.map(row => ({
         nombre: row.nombre || '',
-        direccion_habitual: row.direccion || '',
+        direccion_habitual: row.direccion || row.direccion_habitual || '',
         telefono: row.telefono || '',
-        email: ''
+        email: row.email || ''
       }));
 
+      setProgress(30);
+      setProgressMessage(`Guardando ${clientesImportados.length} clientes en Firestore...`);
+      
+      // Usar la función de importación que guarda en Firebase
+      const cantidad = await importarClientes(clientesImportados);
+      
       setProgress(80);
-      const cantidad = importarClientesLocal(clientesImportados);
+      setProgressMessage('Actualizando lista...');
+      
+      // Refrescar la lista desde Firebase
+      await cargarClientes();
       
       setProgress(100);
       setProgressMessage('¡Importación completada!');
-      cargarClientes();
-      toast.success(`${cantidad} clientes importados con éxito`);
+      
+      toast.success(`${cantidad} clientes importados exitosamente a Firebase`);
       
       setTimeout(() => {
         setLoading(false);
         setProgress(0);
         setProgressMessage('');
         setShowImportModal(false);
-      }, 1000);
-    }, 500);
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Error en importación:', error);
+      setLoading(false);
+      setProgress(0);
+      setProgressMessage('');
+      toast.error('Error al importar clientes');
+    }
   };
 
   const handleExportExcel = () => {

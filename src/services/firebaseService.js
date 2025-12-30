@@ -18,6 +18,135 @@ import toast from 'react-hot-toast';
 // Cambiar a 'true' para usar localStorage, 'false' para Firebase
 const USE_LOCAL_STORAGE = false;
 
+// ==================== SISTEMA DE REINTENTOS Y MANEJO DE ERRORES ====================
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  initialDelay: 1000,
+  maxDelay: 5000,
+  backoffMultiplier: 2
+};
+
+// Estado de la conexión
+let connectionState = {
+  isOnline: true,
+  permissionDeniedCount: 0,
+  lastPermissionCheck: null
+};
+
+/**
+ * Determina si un error es de permisos de Firebase
+ */
+const esErrorPermisos = (error) => {
+  if (!error) return false;
+  
+  const codigosPermisos = [
+    'permission-denied',
+    'PERMISSION_DENIED',
+    'insufficient-permissions'
+  ];
+  
+  return codigosPermisos.some(codigo => 
+    error.code?.includes(codigo) || 
+    error.message?.toLowerCase().includes('permission')
+  );
+};
+
+/**
+ * Determina si un error es recuperable (merece reintento)
+ */
+const esErrorRecuperable = (error) => {
+  if (!error) return false;
+  
+  const erroresRecuperables = [
+    'unavailable',
+    'deadline-exceeded',
+    'resource-exhausted',
+    'aborted',
+    'cancelled',
+    'network-request-failed',
+    'timeout'
+  ];
+  
+  return erroresRecuperables.some(tipo => 
+    error.code?.includes(tipo) || 
+    error.message?.toLowerCase().includes(tipo)
+  );
+};
+
+/**
+ * Espera con delay exponencial
+ */
+const esperarConBackoff = (intento) => {
+  const delay = Math.min(
+    RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, intento),
+    RETRY_CONFIG.maxDelay
+  );
+  return new Promise(resolve => setTimeout(resolve, delay));
+};
+
+/**
+ * Ejecuta una operación de Firebase con reintentos automáticos
+ */
+const ejecutarConReintentos = async (operacion, nombreOperacion = 'Operación') => {
+  let ultimoError = null;
+  
+  for (let intento = 0; intento < RETRY_CONFIG.maxRetries; intento++) {
+    try {
+      const resultado = await operacion();
+      
+      // Si la operación tuvo éxito, resetear contador de errores de permisos
+      if (connectionState.permissionDeniedCount > 0) {
+        connectionState.permissionDeniedCount = 0;
+        console.log('✅ Conexión a Firebase restablecida exitosamente');
+        toast.success('Conexión restablecida');
+      }
+      
+      return resultado;
+      
+    } catch (error) {
+      ultimoError = error;
+      
+      // Manejar errores de permisos
+      if (esErrorPermisos(error)) {
+        connectionState.permissionDeniedCount++;
+        connectionState.lastPermissionCheck = new Date();
+        
+        console.warn(`⚠️ Error de permisos en Firebase (intento ${intento + 1}/${RETRY_CONFIG.maxRetries}):`, error.message);
+        
+        if (intento === 0) {
+          toast.error('Error de permisos. Verificando reglas de Firebase...');
+        }
+        
+        // Esperar antes de reintentar (las reglas pueden haberse actualizado)
+        if (intento < RETRY_CONFIG.maxRetries - 1) {
+          await esperarConBackoff(intento);
+          console.log('🔄 Reintentando operación después de error de permisos...');
+          continue;
+        }
+      }
+      
+      // Manejar errores recuperables (red, timeout, etc.)
+      if (esErrorRecuperable(error)) {
+        console.warn(`⚠️ Error temporal en ${nombreOperacion} (intento ${intento + 1}/${RETRY_CONFIG.maxRetries}):`, error.message);
+        
+        if (intento < RETRY_CONFIG.maxRetries - 1) {
+          await esperarConBackoff(intento);
+          console.log(`🔄 Reintentando ${nombreOperacion}...`);
+          continue;
+        }
+      }
+      
+      // Si no es recuperable, lanzar inmediatamente
+      console.error(`❌ Error no recuperable en ${nombreOperacion}:`, error);
+      throw error;
+    }
+  }
+  
+  // Si agotamos los reintentos
+  console.error(`❌ Agotados los reintentos para ${nombreOperacion}`);
+  throw ultimoError;
+};
+
 // ==================== UTILIDADES LOCALSTORAGE ====================
 const getLocalData = (key) => {
   try {
@@ -47,12 +176,11 @@ const getPedidosLocal = () => {
   return pedidos.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const getPedidosFirebase = async () => {
-  try {
+  return ejecutarConReintentos(async () => {
     console.log("Obteniendo pedidos desde Firebase...");
     
-    // Primero intentar obtener todos los pedidos sin filtro de usuario
     const querySnapshot = await getDocs(
       query(
         collection(db, pedidosCollection),
@@ -65,13 +193,31 @@ const getPedidosFirebase = async () => {
       ...doc.data()
     }));
     
-    console.log(`Total de pedidos encontrados en Firebase: ${pedidos.length}`);
+    console.log(`✅ ${pedidos.length} pedidos obtenidos de Firebase`);
+    
+    // Guardar en caché local como respaldo
+    if (pedidos.length > 0) {
+      try {
+        setLocalData('pedidos_domicilio_cache', pedidos);
+      } catch (e) {
+        console.warn('No se pudo guardar caché de pedidos:', e);
+      }
+    }
+    
     return pedidos;
-  } catch (error) {
+  }, 'getPedidos').catch(error => {
     console.error('Error al obtener pedidos:', error);
+    
+    // Intentar usar caché local como fallback
+    const cache = getLocalData('pedidos_domicilio_cache');
+    if (cache && cache.length > 0) {
+      toast.error('Usando datos en caché. Verifica tu conexión.');
+      return cache;
+    }
+    
     toast.error('Error al cargar pedidos');
     return [];
-  }
+  });
 };
 
 export const getPedidos = USE_LOCAL_STORAGE ? getPedidosLocal : getPedidosFirebase;
@@ -99,9 +245,9 @@ const addPedidoLocal = (pedidoData) => {
   return nuevoPedido;
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const addPedidoFirebase = async (pedidoData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     const pedido = {
       cliente: pedidoData.cliente || '',
       direccion: pedidoData.direccion || '',
@@ -117,11 +263,11 @@ const addPedidoFirebase = async (pedidoData) => {
     const docRef = await addDoc(collection(db, pedidosCollection), pedido);
     toast.success('Información guardada con éxito');
     return { id: docRef.id, ...pedido };
-  } catch (error) {
+  }, 'addPedido').catch(error => {
     console.error('Error al agregar pedido:', error);
-    toast.error('Error al guardar pedido');
+    toast.error('Error al guardar pedido. Verifica los permisos de Firebase.');
     throw error;
-  }
+  });
 };
 
 export const addPedido = USE_LOCAL_STORAGE ? addPedidoLocal : addPedidoFirebase;
@@ -140,16 +286,16 @@ const updatePedidoLocal = (id, pedidoData) => {
   }
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const updatePedidoFirebase = async (id, pedidoData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, pedidosCollection, id), pedidoData);
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'updatePedido').catch(error => {
     console.error('Error al actualizar pedido:', error);
-    toast.error('Error al actualizar pedido');
+    toast.error('Error al actualizar pedido. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const updatePedido = USE_LOCAL_STORAGE ? updatePedidoLocal : updatePedidoFirebase;
@@ -162,16 +308,16 @@ const deletePedidoLocal = (id) => {
   toast.success('Información guardada con éxito');
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const deletePedidoFirebase = async (id) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, pedidosCollection, id));
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'deletePedido').catch(error => {
     console.error('Error al eliminar pedido:', error);
-    toast.error('Error al eliminar pedido');
+    toast.error('Error al eliminar pedido. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const deletePedido = USE_LOCAL_STORAGE ? deletePedidoLocal : deletePedidoFirebase;
@@ -184,9 +330,9 @@ const getRepartidoresLocal = () => {
   return getLocalData('repartidores');
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const getRepartidoresFirebase = async () => {
-  try {
+  return ejecutarConReintentos(async () => {
     console.log("Obteniendo repartidores desde Firebase...");
     
     const querySnapshot = await getDocs(
@@ -198,13 +344,31 @@ const getRepartidoresFirebase = async () => {
       ...doc.data()
     }));
     
-    console.log(`Total de repartidores encontrados en Firebase: ${repartidores.length}`);
+    console.log(`✅ ${repartidores.length} repartidores obtenidos de Firebase`);
+    
+    // Guardar en caché local como respaldo
+    if (repartidores.length > 0) {
+      try {
+        setLocalData('repartidores_cache', repartidores);
+      } catch (e) {
+        console.warn('No se pudo guardar caché de repartidores:', e);
+      }
+    }
+    
     return repartidores;
-  } catch (error) {
+  }, 'getRepartidores').catch(error => {
     console.error('Error al obtener repartidores:', error);
+    
+    // Intentar usar caché local como fallback
+    const cache = getLocalData('repartidores_cache');
+    if (cache && cache.length > 0) {
+      toast.error('Usando datos en caché. Verifica tu conexión.');
+      return cache;
+    }
+    
     toast.error('Error al cargar repartidores');
     return [];
-  }
+  });
 };
 
 export const getRepartidores = USE_LOCAL_STORAGE ? getRepartidoresLocal : getRepartidoresFirebase;
@@ -229,9 +393,9 @@ const addRepartidorLocal = (repartidorData) => {
   return nuevoRepartidor;
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const addRepartidorFirebase = async (repartidorData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     const repartidor = {
       nombre: repartidorData.nombre || '',
       vehiculo: repartidorData.vehiculo || '',
@@ -244,11 +408,11 @@ const addRepartidorFirebase = async (repartidorData) => {
     const docRef = await addDoc(collection(db, repartidoresCollection), repartidor);
     toast.success('Información guardada con éxito');
     return { id: docRef.id, ...repartidor };
-  } catch (error) {
+  }, 'addRepartidor').catch(error => {
     console.error('Error al agregar repartidor:', error);
-    toast.error('Error al guardar repartidor');
+    toast.error('Error al guardar repartidor. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const addRepartidor = USE_LOCAL_STORAGE ? addRepartidorLocal : addRepartidorFirebase;
@@ -267,16 +431,16 @@ const updateRepartidorLocal = (id, repartidorData) => {
   }
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const updateRepartidorFirebase = async (id, repartidorData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, repartidoresCollection, id), repartidorData);
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'updateRepartidor').catch(error => {
     console.error('Error al actualizar repartidor:', error);
-    toast.error('Error al actualizar repartidor');
+    toast.error('Error al actualizar repartidor. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const updateRepartidor = USE_LOCAL_STORAGE ? updateRepartidorLocal : updateRepartidorFirebase;
@@ -289,16 +453,16 @@ const deleteRepartidorLocal = (id) => {
   toast.success('Información guardada con éxito');
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const deleteRepartidorFirebase = async (id) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, repartidoresCollection, id));
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'deleteRepartidor').catch(error => {
     console.error('Error al eliminar repartidor:', error);
-    toast.error('Error al eliminar repartidor');
+    toast.error('Error al eliminar repartidor. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const deleteRepartidor = USE_LOCAL_STORAGE ? deleteRepartidorLocal : deleteRepartidorFirebase;
@@ -311,9 +475,9 @@ const getClientesLocal = () => {
   return getLocalData('clientes');
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const getClientesFirebase = async () => {
-  try {
+  return ejecutarConReintentos(async () => {
     console.log("Obteniendo clientes desde Firebase...");
     
     const querySnapshot = await getDocs(
@@ -325,13 +489,31 @@ const getClientesFirebase = async () => {
       ...doc.data()
     }));
     
-    console.log(`Total de clientes encontrados en Firebase: ${clientes.length}`);
+    console.log(`✅ ${clientes.length} clientes obtenidos de Firebase`);
+    
+    // Guardar en caché local como respaldo
+    if (clientes.length > 0) {
+      try {
+        setLocalData('clientes_cache', clientes);
+      } catch (e) {
+        console.warn('No se pudo guardar caché de clientes:', e);
+      }
+    }
+    
     return clientes;
-  } catch (error) {
+  }, 'getClientes').catch(error => {
     console.error('Error al obtener clientes:', error);
+    
+    // Intentar usar caché local como fallback
+    const cache = getLocalData('clientes_cache');
+    if (cache && cache.length > 0) {
+      toast.error('Usando datos en caché. Verifica tu conexión.');
+      return cache;
+    }
+    
     toast.error('Error al cargar clientes');
     return [];
-  }
+  });
 };
 
 export const getClientes = USE_LOCAL_STORAGE ? getClientesLocal : getClientesFirebase;
@@ -355,9 +537,9 @@ const addClienteLocal = (clienteData) => {
   return nuevoCliente;
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const addClienteFirebase = async (clienteData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     const cliente = {
       nombre: clienteData.nombre || '',
       direccion_habitual: clienteData.direccion_habitual || '',
@@ -366,14 +548,17 @@ const addClienteFirebase = async (clienteData) => {
       fechaRegistro: Timestamp.now()
     };
 
+    console.log('📤 Guardando cliente en Firebase...', cliente);
     const docRef = await addDoc(collection(db, clientesCollection), cliente);
+    console.log('✅ Cliente guardado exitosamente en Firestore con ID:', docRef.id);
+    
     toast.success('Información guardada con éxito');
     return { id: docRef.id, ...cliente };
-  } catch (error) {
-    console.error('Error al agregar cliente:', error);
-    toast.error('Error al guardar cliente');
+  }, 'addCliente').catch(error => {
+    console.error('❌ Error al agregar cliente:', error);
+    toast.error('Error al guardar cliente. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const addCliente = USE_LOCAL_STORAGE ? addClienteLocal : addClienteFirebase;
@@ -392,16 +577,16 @@ const updateClienteLocal = (id, clienteData) => {
   }
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const updateClienteFirebase = async (id, clienteData) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, clientesCollection, id), clienteData);
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'updateCliente').catch(error => {
     console.error('Error al actualizar cliente:', error);
-    toast.error('Error al actualizar cliente');
+    toast.error('Error al actualizar cliente. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const updateCliente = USE_LOCAL_STORAGE ? updateClienteLocal : updateClienteFirebase;
@@ -414,16 +599,16 @@ const deleteClienteLocal = (id) => {
   toast.success('Información guardada con éxito');
 };
 
-// Versión FIREBASE
+// Versión FIREBASE optimizada con reintentos
 const deleteClienteFirebase = async (id) => {
-  try {
+  return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, clientesCollection, id));
     toast.success('Información guardada con éxito');
-  } catch (error) {
+  }, 'deleteCliente').catch(error => {
     console.error('Error al eliminar cliente:', error);
-    toast.error('Error al eliminar cliente');
+    toast.error('Error al eliminar cliente. Verifica los permisos.');
     throw error;
-  }
+  });
 };
 
 export const deleteCliente = USE_LOCAL_STORAGE ? deleteClienteLocal : deleteClienteFirebase;
@@ -447,6 +632,57 @@ export const importarClientesLocal = (clientesArray) => {
   setLocalData('clientes', todosClientes);
   return nuevosClientes.length;
 };
+
+// Importar clientes a Firebase (versión optimizada con batch)
+export const importarClientesFirebase = async (clientesArray) => {
+  console.log(`📦 Iniciando importación de ${clientesArray.length} clientes a Firebase...`);
+  
+  let clientesGuardados = 0;
+  let errores = 0;
+  
+  try {
+    // Guardar cada cliente individualmente con reintentos
+    for (let i = 0; i < clientesArray.length; i++) {
+      const clienteData = clientesArray[i];
+      
+      try {
+        const nuevoCliente = await addClienteFirebase({
+          nombre: clienteData.nombre || '',
+          direccion_habitual: clienteData.direccion_habitual || clienteData.direccion || '',
+          telefono: clienteData.telefono || '',
+          email: clienteData.email || ''
+        });
+        
+        clientesGuardados++;
+        console.log(`✅ Cliente ${i + 1}/${clientesArray.length} guardado:`, nuevoCliente.id);
+        
+      } catch (error) {
+        errores++;
+        console.error(`❌ Error al guardar cliente ${i + 1}:`, error);
+      }
+    }
+    
+    console.log(`📊 Importación completada: ${clientesGuardados} exitosos, ${errores} errores`);
+    
+    if (clientesGuardados > 0) {
+      toast.success(`${clientesGuardados} clientes importados exitosamente`);
+    }
+    
+    if (errores > 0) {
+      toast.error(`${errores} clientes no se pudieron importar`);
+    }
+    
+    return clientesGuardados;
+    
+  } catch (error) {
+    console.error('❌ Error general en importación:', error);
+    toast.error('Error al importar clientes');
+    throw error;
+  }
+};
+
+// Función de importación que se adapta según el modo
+export const importarClientes = USE_LOCAL_STORAGE ? importarClientesLocal : importarClientesFirebase;
 
 // Guardar historial de costos de envío
 export const guardarHistorialCosto = (direccion, costo) => {
@@ -486,5 +722,60 @@ export const sincronizarConNube = async () => {
   } catch (error) {
     toast.error('Error al preparar sincronización');
     throw error;
+  }
+};
+
+// ==================== MONITOREO DE CONEXIÓN ====================
+
+/**
+ * Obtiene el estado actual de la conexión a Firebase
+ */
+export const getConnectionState = () => {
+  return {
+    ...connectionState,
+    hasPermissionIssues: connectionState.permissionDeniedCount > 0,
+    status: connectionState.isOnline ? 'online' : 'offline'
+  };
+};
+
+/**
+ * Reinicia los contadores de errores de permisos
+ */
+export const resetPermissionErrors = () => {
+  connectionState.permissionDeniedCount = 0;
+  connectionState.lastPermissionCheck = null;
+  console.log('✅ Contadores de errores de permisos reiniciados');
+};
+
+/**
+ * Verifica la conectividad con Firebase intentando una operación de lectura simple
+ */
+export const verificarConexionFirebase = async () => {
+  try {
+    console.log('🔍 Verificando conexión a Firebase...');
+    
+    // Intentar una operación simple de lectura
+    const testRef = collection(db, clientesCollection);
+    await getDocs(query(testRef, where('__name__', '==', 'test-connection-dummy')));
+    
+    connectionState.isOnline = true;
+    connectionState.permissionDeniedCount = 0;
+    
+    console.log('✅ Conexión a Firebase verificada exitosamente');
+    toast.success('Conexión a Firebase activa');
+    
+    return true;
+  } catch (error) {
+    if (esErrorPermisos(error)) {
+      console.warn('⚠️ Problemas de permisos detectados en Firebase');
+      toast.error('Error de permisos. Verifica las reglas en la consola de Firebase.');
+      connectionState.permissionDeniedCount++;
+      return false;
+    }
+    
+    console.error('❌ Error al verificar conexión:', error);
+    connectionState.isOnline = false;
+    toast.error('No se puede conectar a Firebase');
+    return false;
   }
 };
