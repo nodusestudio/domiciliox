@@ -28,9 +28,9 @@ export default function Repartidores() {
     cargarRepartidores();
   }, []);
 
-  const cargarRepartidores = () => {
-    const repartidoresCargados = getRepartidores();
-    setRepartidores(repartidoresCargados);
+  const cargarRepartidores = async () => {
+    const repartidoresCargados = await getRepartidores();
+    setRepartidores(repartidoresCargados || []);
   };
 
   const handleInputChange = (e) => {

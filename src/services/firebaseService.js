@@ -102,12 +102,6 @@ const addPedidoLocal = (pedidoData) => {
 // Versión FIREBASE
 const addPedidoFirebase = async (pedidoData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     const pedido = {
       cliente: pedidoData.cliente || '',
       direccion: pedidoData.direccion || '',
@@ -117,12 +111,12 @@ const addPedidoFirebase = async (pedidoData) => {
       metodo_pago: pedidoData.metodo_pago || 'Efectivo',
       repartidor_id: pedidoData.repartidor_id || null,
       estado: pedidoData.estado || 'Recibido',
-      fecha: Timestamp.now(),
-      userId: userId
+      fecha: Timestamp.now()
     };
 
-    await addDoc(collection(db, pedidosCollection), pedido);
+    const docRef = await addDoc(collection(db, pedidosCollection), pedido);
     toast.success('Información guardada con éxito');
+    return { id: docRef.id, ...pedido };
   } catch (error) {
     console.error('Error al agregar pedido:', error);
     toast.error('Error al guardar pedido');
@@ -149,16 +143,7 @@ const updatePedidoLocal = (id, pedidoData) => {
 // Versión FIREBASE
 const updatePedidoFirebase = async (id, pedidoData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
-    await updateDoc(doc(db, pedidosCollection, id), {
-      ...pedidoData,
-      userId: userId
-    });
+    await updateDoc(doc(db, pedidosCollection, id), pedidoData);
     toast.success('Información guardada con éxito');
   } catch (error) {
     console.error('Error al actualizar pedido:', error);
@@ -180,12 +165,6 @@ const deletePedidoLocal = (id) => {
 // Versión FIREBASE
 const deletePedidoFirebase = async (id) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     await deleteDoc(doc(db, pedidosCollection, id));
     toast.success('Información guardada con éxito');
   } catch (error) {
@@ -253,24 +232,18 @@ const addRepartidorLocal = (repartidorData) => {
 // Versión FIREBASE
 const addRepartidorFirebase = async (repartidorData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     const repartidor = {
       nombre: repartidorData.nombre || '',
       vehiculo: repartidorData.vehiculo || '',
       placa: repartidorData.placa || '',
       telefono: repartidorData.telefono || '',
       disponibilidad: repartidorData.disponibilidad !== undefined ? repartidorData.disponibilidad : true,
-      fechaRegistro: Timestamp.now(),
-      userId: userId
+      fechaRegistro: Timestamp.now()
     };
 
-    await addDoc(collection(db, repartidoresCollection), repartidor);
+    const docRef = await addDoc(collection(db, repartidoresCollection), repartidor);
     toast.success('Información guardada con éxito');
+    return { id: docRef.id, ...repartidor };
   } catch (error) {
     console.error('Error al agregar repartidor:', error);
     toast.error('Error al guardar repartidor');
@@ -297,16 +270,7 @@ const updateRepartidorLocal = (id, repartidorData) => {
 // Versión FIREBASE
 const updateRepartidorFirebase = async (id, repartidorData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
-    await updateDoc(doc(db, repartidoresCollection, id), {
-      ...repartidorData,
-      userId: userId
-    });
+    await updateDoc(doc(db, repartidoresCollection, id), repartidorData);
     toast.success('Información guardada con éxito');
   } catch (error) {
     console.error('Error al actualizar repartidor:', error);
@@ -328,12 +292,6 @@ const deleteRepartidorLocal = (id) => {
 // Versión FIREBASE
 const deleteRepartidorFirebase = async (id) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     await deleteDoc(doc(db, repartidoresCollection, id));
     toast.success('Información guardada con éxito');
   } catch (error) {
@@ -400,22 +358,17 @@ const addClienteLocal = (clienteData) => {
 // Versión FIREBASE
 const addClienteFirebase = async (clienteData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     const cliente = {
       nombre: clienteData.nombre || '',
       direccion_habitual: clienteData.direccion_habitual || '',
       telefono: clienteData.telefono || '',
-      fechaRegistro: Timestamp.now(),
-      userId: userId
+      email: clienteData.email || '',
+      fechaRegistro: Timestamp.now()
     };
 
-    await addDoc(collection(db, clientesCollection), cliente);
+    const docRef = await addDoc(collection(db, clientesCollection), cliente);
     toast.success('Información guardada con éxito');
+    return { id: docRef.id, ...cliente };
   } catch (error) {
     console.error('Error al agregar cliente:', error);
     toast.error('Error al guardar cliente');
@@ -442,16 +395,7 @@ const updateClienteLocal = (id, clienteData) => {
 // Versión FIREBASE
 const updateClienteFirebase = async (id, clienteData) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
-    await updateDoc(doc(db, clientesCollection, id), {
-      ...clienteData,
-      userId: userId
-    });
+    await updateDoc(doc(db, clientesCollection, id), clienteData);
     toast.success('Información guardada con éxito');
   } catch (error) {
     console.error('Error al actualizar cliente:', error);
@@ -473,12 +417,6 @@ const deleteClienteLocal = (id) => {
 // Versión FIREBASE
 const deleteClienteFirebase = async (id) => {
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      toast.error('Usuario no autenticado');
-      throw new Error('Usuario no autenticado');
-    }
-
     await deleteDoc(doc(db, clientesCollection, id));
     toast.success('Información guardada con éxito');
   } catch (error) {

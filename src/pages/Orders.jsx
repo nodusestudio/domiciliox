@@ -47,11 +47,11 @@ const Orders = () => {
    *   basándose en envíos previos a la misma dirección
    * - Los pedidos se persisten para evitar pérdida de datos si se recarga la página
    */
-  const cargarDatos = () => {
-    const clientesCargados = getClientes();
+  const cargarDatos = async () => {
+    const clientesCargados = await getClientes();
     const historialCargado = obtenerHistorialCostos();
     
-    setClientes(clientesCargados);
+    setClientes(clientesCargados || []);
     setHistorialCostos(historialCargado);
     
     // Cargar pedidos del día que estaban en proceso
@@ -335,11 +335,11 @@ const Orders = () => {
 
     try {
       // Crear cliente usando el servicio
-      const clienteCreado = addCliente(nuevoCliente);
+      const clienteCreado = await addCliente(nuevoCliente);
 
       // Recargar catálogo de clientes
-      const clientesActualizados = getClientes();
-      setClientes(clientesActualizados);
+      const clientesActualizados = await getClientes();
+      setClientes(clientesActualizados || []);
 
       // Auto-agregar a pedido actual
       handleSelectCliente(clienteCreado);

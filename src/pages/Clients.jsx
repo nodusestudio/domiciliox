@@ -35,9 +35,9 @@ const Clients = () => {
     cargarClientes();
   }, []);
 
-  const cargarClientes = () => {
-    const clientesCargados = getClientes();
-    setClientes(clientesCargados);
+  const cargarClientes = async () => {
+    const clientesCargados = await getClientes();
+    setClientes(clientesCargados || []);
   };
 
   const handleInputChange = (e) => {
