@@ -23,6 +23,9 @@ const Orders = () => {
   const [fechaCierre, setFechaCierre] = useState('');
   const [horaCierre, setHoraCierre] = useState('');
   
+  // Estado para filtro de repartidor
+  const [filtroRepartidor, setFiltroRepartidor] = useState('');
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [clienteSugerencias, setClienteSugerencias] = useState([]);
   const [showSugerencias, setShowSugerencias] = useState(false);
@@ -66,7 +69,13 @@ const Orders = () => {
     // Cargar pedidos del día que estaban en proceso
     const pedidosGuardados = localStorage.getItem('pedidos');
     if (pedidosGuardados) {
-      setPedidos(JSON.parse(pedidosGuardados));
+      const pedidosParseados = JSON.parse(pedidosGuardados);
+      // Asegurar que todos los pedidos tengan el campo estadoPago
+      const pedidosActualizados = pedidosParseados.map(p => ({
+        ...p,
+        estadoPago: p.estadoPago || 'pendiente'
+      }));
+      setPedidos(pedidosActualizados);
     }
     setDatosInicialesCargados(true);
   };
@@ -149,6 +158,7 @@ const Orders = () => {
         metodo_pago: 'Efectivo',
         repartidor_id: null,
         repartidor_nombre: 'Sin Asignar',
+        estadoPago: 'pendiente',
         entregado: false,
         fecha: fechaFormato,
         hora: ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
@@ -197,6 +207,34 @@ const Orders = () => {
       localStorage.setItem('pedidos', JSON.stringify(updated));
       return updated;
     });
+  };
+
+  const toggleEstadoPago = async (id) => {
+    setPedidos(prev => {
+      const updated = prev.map(p => 
+        p.id === id 
+          ? { ...p, estadoPago: p.estadoPago === 'pendiente' ? 'pagado' : 'pendiente' }
+          : p
+      );
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      return updated;
+    });
+    
+    // Guardar cambio en Firestore
+    const pedido = pedidos.find(p => p.id === id);
+    if (pedido) {
+      const nuevoEstado = pedido.estadoPago === 'pendiente' ? 'pagado' : 'pendiente';
+      try {
+        const { updatePedido } = await import('../services/firebaseService');
+        // Solo actualizar si el pedido ya existe en Firestore (tiene ID de Firestore)
+        if (pedido.firestoreId) {
+          await updatePedido(pedido.firestoreId, { estadoPago: nuevoEstado });
+        }
+        toast.success(`Estado actualizado a ${nuevoEstado}`);
+      } catch (error) {
+        console.error('❌ Error al actualizar estado de pago:', error);
+      }
+    }
   };
 
   const toggleEntregado = (id) => {
@@ -284,7 +322,14 @@ const Orders = () => {
     const hoy = new Date().toLocaleDateString('es-ES');
     // Extraer solo la parte de fecha (DD/MM/YYYY) del campo fecha que tiene formato "DD/MM/YYYY HH:mm"
     const fechaPedido = p.fecha.split(' ')[0];
-    return fechaPedido === hoy;
+    const esDiaActual = fechaPedido === hoy;
+    
+    // Aplicar filtro de repartidor si está activo
+    if (filtroRepartidor && filtroRepartidor !== '') {
+      return esDiaActual && p.repartidor_id === filtroRepartidor;
+    }
+    
+    return esDiaActual;
   });
 
   // Calcular totales para Cierre de Jornada
@@ -361,6 +406,7 @@ const Orders = () => {
           metodo_pago: pedido.metodo_pago,
           repartidor_id: pedido.repartidor_id,
           repartidor_nombre: pedido.repartidor_nombre,
+          estadoPago: pedido.estadoPago || 'pendiente',
           entregado: pedido.entregado
         })
       );
@@ -605,6 +651,25 @@ const Orders = () => {
         </div>
       </div>
 
+      {/* Filtro de Repartidor */}
+      <div className="bg-dark-card border border-dark-border rounded-lg p-6">
+        <label className="block text-sm font-medium text-white mb-3">
+          🚩 Filtrar por Repartidor
+        </label>
+        <select
+          value={filtroRepartidor}
+          onChange={(e) => setFiltroRepartidor(e.target.value)}
+          className="w-full px-4 py-2 bg-[#374151] border border-dark-border rounded-lg text-white focus:ring-2 focus:ring-primary focus:border-transparent"
+        >
+          <option value="">Todos los repartidores</option>
+          {repartidores.map(rep => (
+            <option key={rep.id} value={rep.id}>
+              {rep.nombre}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Buscador con Auto-Insert */}
       <div className="bg-dark-card border border-dark-border rounded-lg p-6">
         <label className="block text-sm font-medium text-white mb-3">
@@ -667,6 +732,7 @@ const Orders = () => {
                 <th className="px-4 py-3 text-right text-sm font-semibold text-success">Total a Recibir</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Repartidor</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Pago</th>
+                <th className="px-4 py-3 text-center text-sm font-semibold text-warning">Estado Pago</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Entregado</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Acciones</th>
               </tr>
@@ -674,7 +740,7 @@ const Orders = () => {
             <tbody className="divide-y divide-dark-border">
               {pedidosDelDia.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="px-6 py-12 text-center">
+                  <td colSpan="13" className="px-6 py-12 text-center">
                     <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
                     <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
                   </td>
@@ -849,6 +915,20 @@ const Orders = () => {
                       </button>
                     </td>
                     
+                    {/* Estado de Pago (Toggle) */}
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        onClick={() => toggleEstadoPago(pedido.id)}
+                        className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
+                          pedido.estadoPago === 'pagado'
+                            ? 'bg-success text-white hover:bg-green-700'
+                            : 'bg-red-600 text-white hover:bg-red-700'
+                        }`}
+                      >
+                        {pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente'}
+                      </button>
+                    </td>
+                    
                     {/* Chulito Entregado */}
                     <td className="px-4 py-4 text-center">
                       <button
@@ -880,6 +960,81 @@ const Orders = () => {
           </table>
         </div>
       </div>
+
+      {/* Desglose de Liquidación */}
+      {pedidosDelDia.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg p-6">
+          <h3 className="text-xl font-bold text-white mb-4">💰 Desglose de Liquidación</h3>
+          <div className="space-y-3">
+            {(() => {
+              // Agrupar pedidos por repartidor
+              const desglosePorRepartidor = {};
+              
+              pedidosDelDia.forEach(pedido => {
+                const repId = pedido.repartidor_id || 'sin-asignar';
+                const repNombre = pedido.repartidor_nombre || 'Sin Asignar';
+                
+                if (!desglosePorRepartidor[repId]) {
+                  desglosePorRepartidor[repId] = {
+                    nombre: repNombre,
+                    pagados: 0,
+                    pendientes: 0,
+                    totalPagados: 0,
+                    totalPendientes: 0
+                  };
+                }
+                
+                const total = pedido.total_a_recibir || 0;
+                
+                if (pedido.estadoPago === 'pagado') {
+                  desglosePorRepartidor[repId].pagados++;
+                  desglosePorRepartidor[repId].totalPagados += total;
+                } else {
+                  desglosePorRepartidor[repId].pendientes++;
+                  desglosePorRepartidor[repId].totalPendientes += total;
+                }
+              });
+              
+              return Object.entries(desglosePorRepartidor).map(([repId, datos]) => (
+                <div 
+                  key={repId} 
+                  className="flex items-center justify-between p-4 bg-[#374151] rounded-lg hover:bg-dark-border transition-colors"
+                >
+                  <div className="font-semibold text-white">
+                    {datos.nombre}
+                  </div>
+                  <div className="flex gap-6 items-center">
+                    <div className="text-right">
+                      <div className="text-sm text-gray-400">Pagados</div>
+                      <div className="text-lg font-bold text-success">
+                        ${datos.totalPagados.toLocaleString('es-CO')}
+                        <span className="text-sm font-normal text-gray-400 ml-2">
+                          ({datos.pagados} pedidos)
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-400">Pendientes</div>
+                      <div className="text-lg font-bold text-red-500">
+                        ${datos.totalPendientes.toLocaleString('es-CO')}
+                        <span className="text-sm font-normal text-gray-400 ml-2">
+                          ({datos.pendientes} pedidos)
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right border-l border-dark-border pl-6">
+                      <div className="text-sm text-gray-400">Total</div>
+                      <div className="text-xl font-bold text-primary">
+                        ${(datos.totalPagados + datos.totalPendientes).toLocaleString('es-CO')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Cierre de Jornada */}
       {pedidosDelDia.length > 0 && (
