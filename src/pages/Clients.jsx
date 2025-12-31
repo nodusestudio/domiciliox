@@ -135,7 +135,7 @@ const Clients = () => {
   const handleImportFromModal = async (data) => {
     setLoading(true);
     setProgress(0);
-    setProgressMessage('Importando clientes a Firebase...');
+    setProgressMessage('Preparando importación...');
 
     try {
       const clientesImportados = data.map(row => ({
@@ -145,13 +145,21 @@ const Clients = () => {
         email: row.email || ''
       }));
 
-      setProgress(30);
+      setProgress(10);
       setProgressMessage(`Guardando ${clientesImportados.length} clientes en Firestore...`);
       
-      // Usar la función de importación que guarda en Firebase
-      const cantidad = await importarClientes(clientesImportados);
+      // Callback para actualizar el progreso en tiempo real
+      const actualizarProgreso = (porcentaje, mensaje) => {
+        // Mapear el progreso de 10% a 90%
+        const progresoAjustado = 10 + Math.floor(porcentaje * 0.8);
+        setProgress(progresoAjustado);
+        setProgressMessage(mensaje);
+      };
       
-      setProgress(80);
+      // Importar usando writeBatch (rápido)
+      const cantidad = await importarClientes(clientesImportados, actualizarProgreso);
+      
+      setProgress(95);
       setProgressMessage('Actualizando lista...');
       
       // Refrescar la lista desde Firebase
@@ -160,7 +168,8 @@ const Clients = () => {
       setProgress(100);
       setProgressMessage('¡Importación completada!');
       
-      toast.success(`${cantidad} clientes importados exitosamente a Firebase`);
+      // Solo un mensaje al final
+      toast.success(`${cantidad} clientes importados exitosamente`);
       
       setTimeout(() => {
         setLoading(false);

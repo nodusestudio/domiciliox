@@ -9,7 +9,8 @@ import {
   query,
   where,
   orderBy,
-  Timestamp 
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import toast from 'react-hot-toast';
@@ -538,7 +539,7 @@ const addClienteLocal = (clienteData) => {
 };
 
 // Versión FIREBASE optimizada con reintentos
-const addClienteFirebase = async (clienteData) => {
+const addClienteFirebase = async (clienteData, silent = false) => {
   return ejecutarConReintentos(async () => {
     const cliente = {
       nombre: clienteData.nombre || '',
@@ -548,15 +549,23 @@ const addClienteFirebase = async (clienteData) => {
       fechaRegistro: Timestamp.now()
     };
 
-    console.log('📤 Guardando cliente en Firebase...', cliente);
-    const docRef = await addDoc(collection(db, clientesCollection), cliente);
-    console.log('✅ Cliente guardado exitosamente en Firestore con ID:', docRef.id);
+    if (!silent) {
+      console.log('📤 Guardando cliente en Firebase...', cliente);
+    }
     
-    toast.success('Información guardada con éxito');
+    const docRef = await addDoc(collection(db, clientesCollection), cliente);
+    
+    if (!silent) {
+      console.log('✅ Cliente guardado exitosamente en Firestore con ID:', docRef.id);
+      toast.success('Información guardada con éxito');
+    }
+    
     return { id: docRef.id, ...cliente };
   }, 'addCliente').catch(error => {
     console.error('❌ Error al agregar cliente:', error);
-    toast.error('Error al guardar cliente. Verifica los permisos.');
+    if (!silent) {
+      toast.error('Error al guardar cliente. Verifica los permisos.');
+    }
     throw error;
   });
 };
@@ -616,7 +625,7 @@ export const deleteCliente = USE_LOCAL_STORAGE ? deleteClienteLocal : deleteClie
 // ==================== FUNCIONES ADICIONALES ====================
 
 // Importar clientes desde Excel (guardar en localStorage)
-export const importarClientesLocal = (clientesArray) => {
+export const importarClientesLocal = (clientesArray, onProgress = null) => {
   const clientesActuales = getLocalData('clientes');
   const nuevosClientes = clientesArray.map((cliente, index) => ({
     id: (Date.now() + index).toString(),
@@ -630,53 +639,74 @@ export const importarClientesLocal = (clientesArray) => {
   
   const todosClientes = [...nuevosClientes, ...clientesActuales];
   setLocalData('clientes', todosClientes);
+  
+  if (onProgress) {
+    onProgress(100, `${nuevosClientes.length} clientes guardados`);
+  }
+  
   return nuevosClientes.length;
 };
 
-// Importar clientes a Firebase (versión optimizada con batch)
-export const importarClientesFirebase = async (clientesArray) => {
-  console.log(`📦 Iniciando importación de ${clientesArray.length} clientes a Firebase...`);
+// Importar clientes a Firebase (versión optimizada con writeBatch)
+export const importarClientesFirebase = async (clientesArray, onProgress = null) => {
+  console.log(`📦 Iniciando importación por lotes de ${clientesArray.length} clientes a Firebase...`);
   
-  let clientesGuardados = 0;
-  let errores = 0;
+  if (!clientesArray || clientesArray.length === 0) {
+    toast.error('No hay clientes para importar');
+    return 0;
+  }
   
   try {
-    // Guardar cada cliente individualmente con reintentos
-    for (let i = 0; i < clientesArray.length; i++) {
-      const clienteData = clientesArray[i];
+    // Firestore tiene un límite de 500 operaciones por batch
+    const BATCH_SIZE = 500;
+    const totalClientes = clientesArray.length;
+    let clientesGuardados = 0;
+    
+    // Dividir en lotes si hay más de 500 clientes
+    for (let i = 0; i < totalClientes; i += BATCH_SIZE) {
+      const lote = clientesArray.slice(i, Math.min(i + BATCH_SIZE, totalClientes));
+      const batch = writeBatch(db);
       
-      try {
-        const nuevoCliente = await addClienteFirebase({
+      // Agregar todos los clientes del lote al batch
+      lote.forEach((clienteData) => {
+        const nuevoDocRef = doc(collection(db, clientesCollection));
+        const cliente = {
           nombre: clienteData.nombre || '',
           direccion_habitual: clienteData.direccion_habitual || clienteData.direccion || '',
           telefono: clienteData.telefono || '',
-          email: clienteData.email || ''
-        });
+          email: clienteData.email || '',
+          fechaRegistro: Timestamp.now()
+        };
         
-        clientesGuardados++;
-        console.log(`✅ Cliente ${i + 1}/${clientesArray.length} guardado:`, nuevoCliente.id);
-        
-      } catch (error) {
-        errores++;
-        console.error(`❌ Error al guardar cliente ${i + 1}:`, error);
+        batch.set(nuevoDocRef, cliente);
+      });
+      
+      // Ejecutar el batch (una sola operación para todos los clientes del lote)
+      await batch.commit();
+      
+      clientesGuardados += lote.length;
+      
+      // Actualizar progreso
+      const progreso = Math.round((clientesGuardados / totalClientes) * 100);
+      console.log(`✅ Lote ${Math.floor(i / BATCH_SIZE) + 1} completado: ${clientesGuardados}/${totalClientes} clientes (${progreso}%)`);
+      
+      if (onProgress) {
+        onProgress(progreso, `${clientesGuardados}/${totalClientes} clientes guardados`);
       }
     }
     
-    console.log(`📊 Importación completada: ${clientesGuardados} exitosos, ${errores} errores`);
-    
-    if (clientesGuardados > 0) {
-      toast.success(`${clientesGuardados} clientes importados exitosamente`);
-    }
-    
-    if (errores > 0) {
-      toast.error(`${errores} clientes no se pudieron importar`);
-    }
-    
+    console.log(`🎉 Importación completada exitosamente: ${clientesGuardados} clientes guardados en Firestore`);
     return clientesGuardados;
     
   } catch (error) {
-    console.error('❌ Error general en importación:', error);
-    toast.error('Error al importar clientes');
+    console.error('❌ Error en importación por lotes:', error);
+    
+    if (esErrorPermisos(error)) {
+      toast.error('Error de permisos. Verifica las reglas de Firebase.');
+    } else {
+      toast.error('Error al importar clientes');
+    }
+    
     throw error;
   }
 };
