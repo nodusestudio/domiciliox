@@ -1,9 +1,11 @@
 import React from 'react';
-import { Menu, Bell, User } from 'lucide-react';
-import { useSettings } from '../hooks/useSettings';
+import { Menu } from 'lucide-react';
 
 const Navbar = ({ toggleSidebar }) => {
-  const { companyName } = useSettings();
+  // Obtener nombre de empresa desde variables de entorno
+  const companyName = import.meta.env.VITE_NOMBRE_EMPRESA || 
+                      import.meta.env.VITE_COMPANY_NAME || 
+                      'DomicilioX';
 
   return (
     <nav className="bg-dark-card border-b border-dark-border px-4 py-3">
@@ -16,20 +18,13 @@ const Navbar = ({ toggleSidebar }) => {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <h1 className="text-xl font-semibold text-white hidden sm:block">
-            {companyName}
-          </h1>
         </div>
 
-        {/* Right side */}
-        <div className="flex items-center gap-2">
-          <button className="p-2 rounded-lg hover:bg-dark-border transition-colors relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
-          </button>
-          <button className="p-2 rounded-lg hover:bg-dark-border transition-colors">
-            <User className="w-5 h-5" />
-          </button>
+        {/* Right side - Company Name */}
+        <div className="flex items-center">
+          <h1 className="text-xl font-bold text-white tracking-wide" style={{ fontFamily: 'Georgia, serif' }}>
+            {companyName}
+          </h1>
         </div>
       </div>
     </nav>
