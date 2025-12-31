@@ -37,10 +37,26 @@ const Clients = () => {
   }, []);
 
   const cargarClientes = async () => {
-    console.log('🔄 Cargando clientes desde Firebase...');
+    // Cargar desde cache primero para carga instantánea
+    const clientesCache = localStorage.getItem('clientes_cache');
+    if (clientesCache) {
+      try {
+        const cacheParseado = JSON.parse(clientesCache);
+        setClientes(cacheParseado);
+        console.log('⚡ Clientes cargados desde cache:', cacheParseado.length);
+      } catch (e) {
+        console.warn('⚠️ Error al parsear cache de clientes');
+      }
+    }
+    
+    // Luego actualizar desde Firebase en segundo plano
+    console.log('🔄 Actualizando clientes desde Firebase...');
     const clientesCargados = await getClientes();
-    console.log(`📊 ${clientesCargados.length} clientes cargados`);
+    console.log(`📊 ${clientesCargados.length} clientes cargados de Firebase`);
     setClientes(clientesCargados || []);
+    
+    // Actualizar cache
+    localStorage.setItem('clientes_cache', JSON.stringify(clientesCargados || []));
   };
 
   const handleInputChange = (e) => {

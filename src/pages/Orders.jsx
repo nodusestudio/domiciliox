@@ -18,6 +18,17 @@ const Orders = () => {
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
+  // Función para reproducir sonido de notificación
+  const reproducirSonido = () => {
+    try {
+      const audio = new Audio('/notification.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
+    } catch (error) {
+      console.log('⚠️ No se pudo reproducir sonido');
+    }
+  };
+  
   // Estados para modal de confirmación de cierre
   const [showModalCierre, setShowModalCierre] = useState(false);
   const [fechaCierre, setFechaCierre] = useState('');
@@ -59,6 +70,27 @@ const Orders = () => {
    * - Los pedidos se persisten para evitar pérdida de datos si se recarga la página
    */
   const cargarDatos = async () => {
+    // Cargar clientes desde cache primero
+    const clientesCache = localStorage.getItem('clientes_cache');
+    if (clientesCache) {
+      try {
+        setClientes(JSON.parse(clientesCache));
+      } catch (e) {
+        console.warn('⚠️ Error al parsear cache de clientes');
+      }
+    }
+    
+    // Cargar repartidores desde cache primero
+    const repartidoresCache = localStorage.getItem('repartidores_cache');
+    if (repartidoresCache) {
+      try {
+        setRepartidores(JSON.parse(repartidoresCache));
+      } catch (e) {
+        console.warn('⚠️ Error al parsear cache de repartidores');
+      }
+    }
+    
+    // Luego actualizar desde Firebase en segundo plano
     const clientesCargados = await getClientes();
     const repartidoresCargados = await getRepartidores();
     const historialCargado = obtenerHistorialCostos();
@@ -66,6 +98,10 @@ const Orders = () => {
     setClientes(clientesCargados || []);
     setRepartidores(repartidoresCargados || []);
     setHistorialCostos(historialCargado);
+    
+    // Actualizar cache
+    localStorage.setItem('clientes_cache', JSON.stringify(clientesCargados || []));
+    localStorage.setItem('repartidores_cache', JSON.stringify(repartidoresCargados || []));
     
     // Cargar pedidos del día que estaban en proceso
     const pedidosGuardados = localStorage.getItem('pedidos');
@@ -175,6 +211,8 @@ const Orders = () => {
         [cliente.direccion_habitual]: parseFloat(costoEnvio)
       }));
       
+      // Reproducir sonido de notificación
+      reproducirSonido();
       toast.success('Pedido agregado con éxito');
       setSearchTerm('');
     }, 100);
