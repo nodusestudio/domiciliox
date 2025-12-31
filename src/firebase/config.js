@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -16,6 +17,18 @@ if (!firebaseConfig.apiKey) {
 }
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+// Inicializar autenticación
+export const auth = getAuth(app);
+
+// Autenticación anónima automática
+signInAnonymously(auth)
+  .then(() => {
+    console.log("✓ Usuario autenticado anónimamente");
+  })
+  .catch((error) => {
+    console.error("Error en autenticación anónima:", error);
+  });
 
 // Verificar que estamos conectados al proyecto correcto
 console.log("Conectado a:", firebaseConfig.projectId);
