@@ -140,9 +140,10 @@ const Orders = () => {
     setSearchTerm(value);
     
     if (value.length > 0) {
+      const valorBusqueda = value.toLowerCase();
       const sugerencias = clientes.filter(c => 
-        c.nombre.toLowerCase().includes(value.toLowerCase()) ||
-        c.telefono.includes(value)
+        c.nombre.toLowerCase().includes(valorBusqueda) ||
+        c.telefono.toLowerCase().includes(valorBusqueda)
       );
       setClienteSugerencias(sugerencias);
       setShowSugerencias(true);
@@ -684,6 +685,51 @@ const Orders = () => {
     }
   };
 
+  const descargarReporteDelDia = () => {
+    try {
+      // Crear CSV con los pedidos del día
+      const headers = ['#', 'Cliente', 'Fecha', 'Dirección', 'Teléfono', 'Valor Pedido', 'Costo Envío', 'Total a Recibir', 'Repartidor', 'Estado Pago', 'Método Pago', 'Entregado'];
+      
+      const rows = pedidosDelDia.map((pedido, index) => [
+        index + 1,
+        pedido.cliente,
+        pedido.fecha,
+        pedido.direccion,
+        pedido.telefono,
+        `$${pedido.valorPedido.toLocaleString('es-CO')}`,
+        `$${pedido.costoEnvio.toLocaleString('es-CO')}`,
+        `$${pedido.total.toLocaleString('es-CO')}`,
+        pedido.repartidor_nombre || 'Sin Asignar',
+        pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente',
+        pedido.metodo_pago,
+        pedido.entregado ? 'Sí' : 'No'
+      ]);
+      
+      // Construir CSV
+      let csvContent = headers.join(',') + '\n';
+      rows.forEach(row => {
+        csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
+      });
+      
+      // Descargar
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const fechaHoy = new Date().toLocaleDateString('es-ES').replace(/\//g, '-');
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Reporte_Dia_${fechaHoy}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success('Reporte CSV descargado');
+    } catch (error) {
+      toast.error('Error al generar el reporte');
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -697,6 +743,15 @@ const Orders = () => {
             <p className="text-sm text-gray-400">Total pedidos hoy</p>
             <p className="text-3xl font-bold text-primary">{pedidosDelDia.length}</p>
           </div>
+          {/* Botón Descargar Reporte del Día */}
+          <button
+            onClick={descargarReporteDelDia}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+            title="Descargar Reporte del Día en CSV"
+          >
+            <Download className="w-5 h-5" />
+            <span className="hidden sm:inline">Reporte del Día</span>
+          </button>
           {/* Botón oculto de sincronización */}
           <button
             onClick={handleSincronizacion}

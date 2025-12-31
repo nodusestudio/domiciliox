@@ -9,6 +9,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
@@ -234,7 +235,7 @@ const getPedidosFirebase = async () => {
     cache[cacheKey].loading = true;
     ejecutarConReintentos(async () => {
       const querySnapshot = await getDocs(
-        query(collection(db, pedidosCollection), orderBy('fecha', 'desc'))
+        query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
       );
       const pedidos = querySnapshot.docs.map(doc => {
         const data = doc.data();
@@ -264,7 +265,7 @@ const getPedidosFirebase = async () => {
     cache[cacheKey].loading = true;
     
     const querySnapshot = await getDocs(
-      query(collection(db, pedidosCollection), orderBy('fecha', 'desc'))
+      query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
     );
     const pedidos = querySnapshot.docs.map(doc => {
       const data = doc.data();
