@@ -19,9 +19,9 @@ const Orders = () => {
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
   // Función para reproducir sonido de notificación
-  const reproducirSonido = () => {
+  const reproducirNotificacion = () => {
     try {
-      const audio = new Audio('/notification.mp3');
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
       audio.volume = 0.5;
       audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
     } catch (error) {
@@ -212,7 +212,7 @@ const Orders = () => {
       }));
       
       // Reproducir sonido de notificación
-      reproducirSonido();
+      reproducirNotificacion();
       toast.success('Pedido agregado con éxito');
       setSearchTerm('');
     }, 100);
