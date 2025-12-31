@@ -433,6 +433,36 @@ const Orders = () => {
       historial.unshift(jornada);
       localStorage.setItem('historial_jornadas', JSON.stringify(historial));
 
+      // Guardar jornadas por repartidor en Firestore
+      const pedidosPorRepartidor = {};
+      pedidosDelDia.forEach(pedido => {
+        const key = pedido.repartidor_id || 'sin_asignar';
+        const nombre = pedido.repartidor_nombre || 'Sin Asignar';
+        
+        if (!pedidosPorRepartidor[key]) {
+          pedidosPorRepartidor[key] = {
+            id_repartidor: key,
+            nombre: nombre,
+            total_pedidos_valor: 0,
+            total_costos_envio: 0,
+            cantidad_entregas: 0
+          };
+        }
+        
+        pedidosPorRepartidor[key].total_pedidos_valor += pedido.valor_pedido;
+        pedidosPorRepartidor[key].total_costos_envio += pedido.costo_envio;
+        pedidosPorRepartidor[key].cantidad_entregas++;
+      });
+
+      // Guardar en Firestore solo repartidores con pedidos asignados
+      const { addJornadaRepartidor } = await import('../services/firebaseService');
+      const promesas = Object.values(pedidosPorRepartidor)
+        .filter(rep => rep.id_repartidor !== 'sin_asignar')
+        .map(rep => addJornadaRepartidor(rep));
+      
+      await Promise.all(promesas);
+      console.log(`✅ ${promesas.length} jornadas de repartidores guardadas en Firestore`);
+
       // Limpiar pedidos del día para nueva jornada
       setPedidos([]);
       localStorage.setItem('pedidos', JSON.stringify([]));
@@ -440,6 +470,7 @@ const Orders = () => {
       toast.success('Jornada cerrada y guardada en Reportes');
       
     } catch (error) {
+      console.error('❌ Error al cerrar jornada:', error);
       toast.error('No se pudo cerrar la jornada. Inténtalo nuevamente.');
     }
   };

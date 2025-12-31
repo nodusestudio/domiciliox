@@ -45,6 +45,11 @@ service cloud.firestore {
     match /repartidores/{document} {
       allow read, write: if true;
     }
+    
+    // Regla para jornadas_repartidores
+    match /jornadas_repartidores/{document} {
+      allow read, write: if true;
+    }
   }
 }
 ```

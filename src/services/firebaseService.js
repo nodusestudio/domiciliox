@@ -567,6 +567,107 @@ const deleteRepartidorFirebase = async (id) => {
 
 export const deleteRepartidor = USE_LOCAL_STORAGE ? deleteRepartidorLocal : deleteRepartidorFirebase;
 
+// ==================== JORNADAS REPARTIDORES ====================
+export const jornadasRepartidoresCollection = 'jornadas_repartidores';
+
+// Versión LOCAL
+const getJornadasRepartidorLocal = (repartidorId) => {
+  const jornadas = getLocalData('jornadas_repartidores');
+  return jornadas.filter(j => j.id_repartidor === repartidorId);
+};
+
+// Versión FIREBASE - Obtener historial de jornadas de un repartidor
+const getJornadasRepartidorFirebase = async (repartidorId) => {
+  return ejecutarConReintentos(async () => {
+    console.log('🔍 Consultando jornadas de repartidor:', repartidorId);
+    
+    const q = query(
+      collection(db, jornadasRepartidoresCollection),
+      where('id_repartidor', '==', repartidorId),
+      orderBy('fecha', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const jornadas = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: String(doc.id || ''),
+        id_repartidor: String(data.id_repartidor || ''),
+        nombre: String(data.nombre || ''),
+        fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+        total_pedidos_valor: Number(data.total_pedidos_valor || 0),
+        total_costos_envio: Number(data.total_costos_envio || 0),
+        cantidad_entregas: Number(data.cantidad_entregas || 0),
+        timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
+      };
+    });
+    
+    console.log(`✅ ${jornadas.length} jornadas encontradas para repartidor ${repartidorId}`);
+    return jornadas;
+  }, 'getJornadasRepartidor').catch(error => {
+    console.error('❌ Error al obtener jornadas de repartidor:', error);
+    toast.error('Error al cargar historial del repartidor');
+    return [];
+  });
+};
+
+export const getJornadasRepartidor = USE_LOCAL_STORAGE ? getJornadasRepartidorLocal : getJornadasRepartidorFirebase;
+
+// Versión LOCAL
+const addJornadaRepartidorLocal = (jornadaData) => {
+  const jornadas = getLocalData('jornadas_repartidores');
+  const nuevaJornada = {
+    id: Date.now().toString(),
+    id_repartidor: jornadaData.id_repartidor || '',
+    nombre: jornadaData.nombre || '',
+    fecha: new Date().toLocaleDateString('es-ES'),
+    total_pedidos_valor: jornadaData.total_pedidos_valor || 0,
+    total_costos_envio: jornadaData.total_costos_envio || 0,
+    cantidad_entregas: jornadaData.cantidad_entregas || 0,
+    timestamp: new Date().toISOString()
+  };
+  
+  jornadas.unshift(nuevaJornada);
+  setLocalData('jornadas_repartidores', jornadas);
+  return nuevaJornada;
+};
+
+// Versión FIREBASE - Guardar jornada de repartidor
+const addJornadaRepartidorFirebase = async (jornadaData) => {
+  return ejecutarConReintentos(async () => {
+    console.log('💾 Guardando jornada de repartidor:', jornadaData);
+    const ahora = Timestamp.now();
+    const jornada = {
+      id_repartidor: String(jornadaData.id_repartidor || ''),
+      nombre: String(jornadaData.nombre || ''),
+      fecha: ahora,
+      total_pedidos_valor: Number(jornadaData.total_pedidos_valor || 0),
+      total_costos_envio: Number(jornadaData.total_costos_envio || 0),
+      cantidad_entregas: Number(jornadaData.cantidad_entregas || 0)
+    };
+
+    const docRef = await addDoc(collection(db, jornadasRepartidoresCollection), jornada);
+    console.log('✅ Jornada de repartidor guardada con ID:', docRef.id);
+    
+    return { 
+      id: String(docRef.id),
+      id_repartidor: String(jornada.id_repartidor),
+      nombre: String(jornada.nombre),
+      fecha: ahora.toDate().toLocaleDateString('es-ES'),
+      total_pedidos_valor: Number(jornada.total_pedidos_valor),
+      total_costos_envio: Number(jornada.total_costos_envio),
+      cantidad_entregas: Number(jornada.cantidad_entregas),
+      timestamp: ahora.toDate().toISOString()
+    };
+  }, 'addJornadaRepartidor').catch(error => {
+    console.error('❌ Error al guardar jornada de repartidor:', error);
+    toast.error('Error al guardar jornada del repartidor');
+    throw error;
+  });
+};
+
+export const addJornadaRepartidor = USE_LOCAL_STORAGE ? addJornadaRepartidorLocal : addJornadaRepartidorFirebase;
+
 // ==================== CLIENTES ====================
 export const clientesCollection = 'clientes';
 

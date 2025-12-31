@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Pencil, Trash2, UserCheck, UserX, Cloud } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, UserCheck, UserX, Cloud, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
   getRepartidores, 
   addRepartidor, 
   updateRepartidor, 
   deleteRepartidor,
-  sincronizarConNube 
+  sincronizarConNube,
+  getJornadasRepartidor
 } from '../services/firebaseService';
 
 export default function Repartidores() {
@@ -14,6 +15,9 @@ export default function Repartidores() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [showHistorialModal, setShowHistorialModal] = useState(false);
+  const [historialJornadas, setHistorialJornadas] = useState([]);
+  const [repartidorSeleccionado, setRepartidorSeleccionado] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
     nombre: '',
@@ -101,6 +105,19 @@ export default function Repartidores() {
       } catch (error) {
         console.error('❌ Error al eliminar repartidor:', error);
       }
+    }
+  };
+
+  const handleVerHistorial = async (repartidor) => {
+    try {
+      console.log('📊 Cargando historial de:', repartidor.nombre);
+      setRepartidorSeleccionado(repartidor);
+      const jornadas = await getJornadasRepartidor(repartidor.id);
+      setHistorialJornadas(jornadas);
+      setShowHistorialModal(true);
+    } catch (error) {
+      console.error('❌ Error al cargar historial:', error);
+      toast.error('No se pudo cargar el historial');
     }
   };
 
@@ -258,6 +275,13 @@ export default function Repartidores() {
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          onClick={() => handleVerHistorial(repartidor)}
+                          className="p-2 text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors"
+                          title="Ver Historial"
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleEdit(repartidor)}
                           className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                           title="Editar"
@@ -393,6 +417,96 @@ export default function Repartidores() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Historial de Jornadas */}
+      {showHistorialModal && repartidorSeleccionado && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-card border border-dark-border rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-dark-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    📊 Historial de Jornadas
+                  </h2>
+                  <p className="text-gray-400 mt-1">
+                    {repartidorSeleccionado.nombre}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowHistorialModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {historialJornadas.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-400">No hay jornadas registradas</p>
+                  <p className="text-gray-500 text-sm mt-2">Las jornadas se guardan al cerrar el día en Despacho Rápido</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-dark-bg border-b border-dark-border">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Fecha</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Entregas</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Valor Pedidos</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Costos Envío</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Total Generado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-dark-border">
+                      {historialJornadas.map((jornada) => {
+                        const totalGenerado = jornada.total_pedidos_valor + jornada.total_costos_envio;
+                        return (
+                          <tr key={jornada.id} className="hover:bg-dark-bg transition-colors">
+                            <td className="px-4 py-3 text-white">{jornada.fecha}</td>
+                            <td className="px-4 py-3 text-right text-white font-semibold">{jornada.cantidad_entregas}</td>
+                            <td className="px-4 py-3 text-right text-gray-300">${jornada.total_pedidos_valor.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-warning">${jornada.total_costos_envio.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-success font-bold">${totalGenerado.toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-dark-bg border-t-2 border-primary">
+                      <tr>
+                        <td className="px-4 py-3 text-white font-bold">TOTALES</td>
+                        <td className="px-4 py-3 text-right text-white font-bold">
+                          {historialJornadas.reduce((sum, j) => sum + j.cantidad_entregas, 0)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-white font-bold">
+                          ${historialJornadas.reduce((sum, j) => sum + j.total_pedidos_valor, 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right text-warning font-bold">
+                          ${historialJornadas.reduce((sum, j) => sum + j.total_costos_envio, 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right text-success font-bold text-lg">
+                          ${historialJornadas.reduce((sum, j) => sum + j.total_pedidos_valor + j.total_costos_envio, 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-dark-border">
+              <button
+                onClick={() => setShowHistorialModal(false)}
+                className="w-full px-4 py-2 bg-dark-bg border border-dark-border text-white rounded-lg hover:bg-dark-border transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
