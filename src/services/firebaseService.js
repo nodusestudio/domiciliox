@@ -1091,3 +1091,27 @@ export const verificarConexionFirebase = async () => {
     return false;
   }
 };
+
+/**
+ * Obtiene la configuración de la empresa desde Firebase
+ * @returns {Promise<{nombreEmpresa: string}>} Configuración de la empresa
+ */
+export const getConfiguracionEmpresa = async () => {
+  try {
+    const configRef = collection(db, 'configuracion');
+    const snapshot = await getDocs(configRef);
+    
+    if (!snapshot.empty) {
+      const config = snapshot.docs[0].data();
+      return {
+        nombreEmpresa: String(config.nombreEmpresa || config.nombre_empresa || 'AliadoX')
+      };
+    }
+    
+    // Si no hay configuración, retornar valor por defecto
+    return { nombreEmpresa: 'AliadoX' };
+  } catch (error) {
+    console.warn('⚠️ No se pudo cargar configuración de empresa desde Firebase:', error);
+    return { nombreEmpresa: 'AliadoX' };
+  }
+};

@@ -1,11 +1,24 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Menu } from 'lucide-react';
+import { getConfiguracionEmpresa } from '../services/firebaseService';
 
 const Navbar = ({ toggleSidebar }) => {
-  // Obtener nombre de empresa desde variables de entorno
-  const companyName = import.meta.env.VITE_NOMBRE_EMPRESA || 
-                      import.meta.env.VITE_COMPANY_NAME || 
-                      'DomicilioX';
+  const [companyName, setCompanyName] = useState('AliadoX');
+
+  useEffect(() => {
+    const cargarNombreEmpresa = async () => {
+      try {
+        // Intentar cargar desde Firebase
+        const config = await getConfiguracionEmpresa();
+        setCompanyName(config.nombreEmpresa);
+      } catch (error) {
+        console.warn('⚠️ Usando nombre por defecto:', error);
+        setCompanyName('AliadoX');
+      }
+    };
+
+    cargarNombreEmpresa();
+  }, []);
 
   return (
     <nav className="bg-dark-card border-b border-dark-border px-4 py-3">
