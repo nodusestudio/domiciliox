@@ -1,35 +1,82 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Package, Users, Truck, TrendingUp } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const Dashboard = () => {
+  const [pedidosHoy, setPedidosHoy] = useState(0);
+  const [clientesActivos, setClientesActivos] = useState(0);
+  const [repartidoresDisponibles, setRepartidoresDisponibles] = useState(0);
+  const [ingresosHoy, setIngresosHoy] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    cargarEstadisticas();
+    const interval = setInterval(cargarEstadisticas, 30000); // Actualizar cada 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  const cargarEstadisticas = () => {
+    try {
+      // Cargar historial de jornadas desde localStorage (misma fuente que Reportes)
+      const historial = JSON.parse(localStorage.getItem('historial_jornadas') || '[]');
+      
+      if (historial.length > 0) {
+        // Obtener jornada más reciente
+        const jornadaReciente = historial[0];
+        
+        // Sanitizar y extraer totales con String/Number para evitar error React #31
+        const cantidadPedidos = Number(jornadaReciente.totales?.cantidad_pedidos || 0);
+        const totalIngresos = Number(jornadaReciente.totales?.total_a_recibir || 0);
+        
+        setPedidosHoy(cantidadPedidos);
+        setIngresosHoy(totalIngresos);
+        
+        // Calcular clientes únicos de la jornada
+        const pedidos = jornadaReciente.pedidos || [];
+        const clientesUnicos = new Set(pedidos.map(p => String(p.cliente || ''))).size;
+        setClientesActivos(clientesUnicos);
+      }
+      
+      // Cargar repartidores desde localStorage
+      const repartidores = JSON.parse(localStorage.getItem('repartidores') || '[]');
+      const disponibles = repartidores.filter(r => r.disponibilidad === true).length;
+      setRepartidoresDisponibles(disponibles);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error al cargar estadísticas:', error);
+      setLoading(false);
+    }
+  };
+
   const stats = [
     { 
-      label: 'Pedidos Hoy', 
-      value: '0', 
+      label: 'Pedidos Totales', 
+      value: String(pedidosHoy || 0), 
       icon: Package, 
       color: 'bg-primary',
-      trend: '+0%'
+      trend: `${pedidosHoy} pedidos`
     },
     { 
       label: 'Clientes Activos', 
-      value: '0', 
+      value: String(clientesActivos || 0), 
       icon: Users, 
       color: 'bg-secondary',
-      trend: '+0%'
+      trend: `${clientesActivos} clientes`
     },
     { 
       label: 'Repartidores', 
-      value: '0', 
+      value: String(repartidoresDisponibles || 0), 
       icon: Truck, 
       color: 'bg-warning',
-      trend: '0'
+      trend: 'disponibles'
     },
     { 
-      label: 'Ingresos Hoy', 
-      value: '$0', 
+      label: 'Ingresos Totales', 
+      value: `$${Number(ingresosHoy || 0).toLocaleString()}`, 
       icon: TrendingUp, 
       color: 'bg-success',
-      trend: '+0%'
+      trend: 'acumulado'
     },
   ];
 
@@ -37,30 +84,32 @@ const Dashboard = () => {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white mb-2">Panel</h2>
-        <p className="text-gray-400">Resumen general de operaciones</p>
+        <p className="text-gray-400">
+          {loading ? 'Cargando estadísticas...' : 'Resumen general de operaciones'}
+        </p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
             <div 
               key={index}
-              className="bg-dark-card border border-dark-border rounded-lg p-6 shadow-lg"
+              className="bg-dark-card border border-dark-border rounded-lg p-6 shadow-lg hover:border-primary/50 transition-all"
             >
               <div className="flex items-start justify-between mb-4">
                 <div className={`${stat.color} p-3 rounded-lg`}>
                   <Icon className="w-6 h-6 text-white" />
                 </div>
-                <span className="text-success text-sm font-medium">
-                  {stat.trend}
+                <span className="text-gray-400 text-xs font-medium">
+                  {String(stat.trend || '')}
                 </span>
               </div>
               <h3 className="text-3xl font-bold text-white mb-1">
-                {stat.value}
+                {String(stat.value || '0')}
               </h3>
-              <p className="text-gray-400 text-sm">{stat.label}</p>
+              <p className="text-gray-400 text-sm">{String(stat.label || '')}</p>
             </div>
           );
         })}
