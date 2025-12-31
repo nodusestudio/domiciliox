@@ -194,11 +194,11 @@ const Clients = () => {
     }
 
     const dataToExport = clientes.map(cliente => ({
-      Nombre: cliente.nombre,
-      Dirección: cliente.direccion_habitual,
-      Teléfono: cliente.telefono,
-      Email: cliente.email || '',
-      'Fecha Registro': cliente.fechaRegistro
+      Nombre: String(cliente.nombre || ''),
+      Dirección: String(cliente.direccion_habitual || ''),
+      Teléfono: String(cliente.telefono || ''),
+      Email: String(cliente.email || ''),
+      'Fecha Registro': String(cliente.fechaRegistro || 'N/A')
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -377,7 +377,7 @@ const Clients = () => {
                           className="w-full px-2 py-1 bg-[#374151] border border-primary rounded text-white focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       ) : (
-                        cliente.nombre
+                        String(cliente.nombre || '')
                       )}
                     </td>
                     
@@ -398,7 +398,7 @@ const Clients = () => {
                           className="w-full px-2 py-1 bg-[#374151] border border-primary rounded text-white focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       ) : (
-                        cliente.direccion_habitual
+                        String(cliente.direccion_habitual || '')
                       )}
                     </td>
                     
@@ -419,7 +419,7 @@ const Clients = () => {
                           className="w-full px-2 py-1 bg-[#374151] border border-primary rounded text-white focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       ) : (
-                        cliente.telefono
+                        String(cliente.telefono || '')
                       )}
                     </td>
                     
@@ -440,11 +440,13 @@ const Clients = () => {
                           className="w-full px-2 py-1 bg-[#374151] border border-primary rounded text-white focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       ) : (
-                        cliente.email || '-'
+                        String(cliente.email || '-')
                       )}
                     </td>
                     
-                    <td className="px-4 py-3 text-sm text-gray-300 hidden sm:table-cell">{cliente.fechaRegistro}</td>
+                    <td className="px-4 py-3 text-sm text-gray-300 hidden sm:table-cell">
+                      {String(cliente.fechaRegistro || 'N/A')}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
                         <button 

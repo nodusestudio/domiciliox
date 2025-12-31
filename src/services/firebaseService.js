@@ -192,24 +192,26 @@ const getPedidosFirebase = async () => {
     const pedidos = querySnapshot.docs.map(doc => {
       const data = doc.data();
       
-      // Convertir Timestamp a string para evitar error React #31
-      return {
-        id: doc.id,
-        cliente: data.cliente || '',
-        direccion: data.direccion || '',
-        telefono: data.telefono || '',
-        productos_pedido: data.productos_pedido || [],
-        total: data.total || 0,
-        metodo_pago: data.metodo_pago || 'Efectivo',
-        repartidor_id: data.repartidor_id || null,
-        estado: data.estado || 'Recibido',
+      // Sanitizar TODOS los campos para evitar objetos
+      const pedidoSanitizado = {
+        id: String(doc.id || ''),
+        cliente: String(data.cliente || ''),
+        direccion: String(data.direccion || ''),
+        telefono: String(data.telefono || ''),
+        productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
+        total: Number(data.total) || 0,
+        metodo_pago: String(data.metodo_pago || 'Efectivo'),
+        repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
+        estado: String(data.estado || 'Recibido'),
         fecha: data.fecha?.toDate
           ? data.fecha.toDate().toLocaleDateString('es-ES')
-          : data.fecha || new Date().toLocaleDateString('es-ES'),
+          : String(data.fecha || 'N/A'),
         timestamp: data.fecha?.toDate
           ? data.fecha.toDate().toISOString()
           : new Date().toISOString()
       };
+      
+      return pedidoSanitizado;
     });
     
     console.log(`✅ ${pedidos.length} pedidos obtenidos de Firebase`);
@@ -376,18 +378,20 @@ const getRepartidoresFirebase = async () => {
     const repartidores = querySnapshot.docs.map(doc => {
       const data = doc.data();
       
-      // Convertir Timestamp a string para evitar error React #31
-      return {
-        id: doc.id,
-        nombre: data.nombre || '',
-        vehiculo: data.vehiculo || '',
-        placa: data.placa || '',
-        telefono: data.telefono || '',
-        disponibilidad: data.disponibilidad !== undefined ? data.disponibilidad : true,
+      // Sanitizar TODOS los campos para evitar objetos
+      const repartidorSanitizado = {
+        id: String(doc.id || ''),
+        nombre: String(data.nombre || ''),
+        vehiculo: String(data.vehiculo || ''),
+        placa: String(data.placa || ''),
+        telefono: String(data.telefono || ''),
+        disponibilidad: Boolean(data.disponibilidad !== undefined ? data.disponibilidad : true),
         fechaRegistro: data.fechaRegistro?.toDate
           ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
-          : data.fechaRegistro || new Date().toLocaleDateString('es-ES')
+          : String(data.fechaRegistro || 'N/A')
       };
+      
+      return repartidorSanitizado;
     });
     
     console.log(`✅ ${repartidores.length} repartidores obtenidos de Firebase`);
@@ -527,6 +531,38 @@ export const deleteRepartidor = USE_LOCAL_STORAGE ? deleteRepartidorLocal : dele
 // ==================== CLIENTES ====================
 export const clientesCollection = 'clientes';
 
+/**
+ * Sanitiza un objeto de Firestore convirtiendo todos los valores a primitivos
+ * Evita el error React #31 al intentar renderizar objetos
+ */
+const sanitizarDocumento = (data) => {
+  const sanitizado = {};
+  
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) {
+      sanitizado[key] = '';
+    } else if (value?.toDate && typeof value.toDate === 'function') {
+      // Es un Timestamp de Firebase
+      try {
+        sanitizado[key] = value.toDate().toLocaleDateString('es-ES');
+      } catch (e) {
+        sanitizado[key] = '';
+      }
+    } else if (typeof value === 'object' && !Array.isArray(value)) {
+      // Es un objeto (no array)
+      sanitizado[key] = JSON.stringify(value);
+    } else if (Array.isArray(value)) {
+      // Es un array - mantener como está
+      sanitizado[key] = value;
+    } else {
+      // Es un primitivo (string, number, boolean)
+      sanitizado[key] = value;
+    }
+  }
+  
+  return sanitizado;
+};
+
 // Versión LOCAL
 const getClientesLocal = () => {
   return getLocalData('clientes');
@@ -544,17 +580,19 @@ const getClientesFirebase = async () => {
     const clientes = querySnapshot.docs.map(doc => {
       const data = doc.data();
       
-      // Convertir Timestamp a string para evitar error React #31
-      return {
-        id: doc.id,
-        nombre: data.nombre || '',
-        direccion_habitual: data.direccion_habitual || '',
-        telefono: data.telefono || '',
-        email: data.email || '',
+      // Sanitizar TODOS los campos para evitar objetos
+      const clienteSanitizado = {
+        id: String(doc.id || ''),
+        nombre: String(data.nombre || ''),
+        direccion_habitual: String(data.direccion_habitual || ''),
+        telefono: String(data.telefono || ''),
+        email: String(data.email || ''),
         fechaRegistro: data.fechaRegistro?.toDate 
           ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
-          : data.fechaRegistro || new Date().toLocaleDateString('es-ES')
+          : String(data.fechaRegistro || 'N/A')
       };
+      
+      return clienteSanitizado;
     });
     
     console.log(`✅ ${clientes.length} clientes obtenidos de Firebase`);
@@ -628,14 +666,14 @@ const addClienteFirebase = async (clienteData, silent = false) => {
       toast.success('Información guardada con éxito');
     }
     
-    // Devolver con fechaRegistro como string para evitar error React #31
+    // Devolver SOLO primitivos para evitar error React #31
     return { 
-      id: docRef.id, 
-      nombre: cliente.nombre,
-      direccion_habitual: cliente.direccion_habitual,
-      telefono: cliente.telefono,
-      email: cliente.email,
-      fechaRegistro: ahora.toDate().toLocaleDateString('es-ES')
+      id: String(docRef.id),
+      nombre: String(cliente.nombre),
+      direccion_habitual: String(cliente.direccion_habitual),
+      telefono: String(cliente.telefono),
+      email: String(cliente.email),
+      fechaRegistro: String(ahora.toDate().toLocaleDateString('es-ES'))
     };
   }, 'addCliente').catch(error => {
     console.error('❌ Error al agregar cliente:', error);

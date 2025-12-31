@@ -206,16 +206,16 @@ export default function Repartidores() {
                 filteredRepartidores.map((repartidor) => (
                   <tr key={repartidor.id} className="hover:bg-dark-bg transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">{repartidor.nombre}</div>
+                      <div className="text-sm font-medium text-white">{String(repartidor.nombre || '')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-300">{repartidor.vehiculo}</div>
+                      <div className="text-sm text-gray-300">{String(repartidor.vehiculo || '')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-300">{repartidor.placa}</div>
+                      <div className="text-sm text-gray-300">{String(repartidor.placa || '')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-300">{repartidor.telefono}</div>
+                      <div className="text-sm text-gray-300">{String(repartidor.telefono || '')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
@@ -240,7 +240,7 @@ export default function Repartidores() {
                       </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-400">{repartidor.fechaRegistro}</div>
+                      <div className="text-sm text-gray-400">{String(repartidor.fechaRegistro || 'N/A')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
