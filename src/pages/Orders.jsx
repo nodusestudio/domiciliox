@@ -75,7 +75,8 @@ const Orders = () => {
     
     if (value.length > 0) {
       const sugerencias = clientes.filter(c => 
-        c.nombre.toLowerCase().includes(value.toLowerCase())
+        c.nombre.toLowerCase().includes(value.toLowerCase()) ||
+        c.telefono.includes(value)
       );
       setClienteSugerencias(sugerencias);
       setShowSugerencias(true);

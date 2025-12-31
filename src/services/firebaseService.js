@@ -19,6 +19,47 @@ import toast from 'react-hot-toast';
 // Cambiar a 'true' para usar localStorage, 'false' para Firebase
 const USE_LOCAL_STORAGE = false;
 
+// ==================== SISTEMA DE CACHÉ SWR ====================
+// Caché en memoria para respuesta instantánea
+const cache = {
+  clientes: { data: null, timestamp: 0, loading: false },
+  pedidos: { data: null, timestamp: 0, loading: false },
+  repartidores: { data: null, timestamp: 0, loading: false }
+};
+
+const CACHE_TTL = 30000; // 30 segundos de validez
+const CACHE_STALE_TIME = 5 * 60 * 1000; // 5 minutos para considerar muy viejo
+
+/**
+ * Verifica si la caché es válida (fresca)
+ */
+const isCacheFresh = (cacheKey) => {
+  const cached = cache[cacheKey];
+  if (!cached.data) return false;
+  const age = Date.now() - cached.timestamp;
+  return age < CACHE_TTL;
+};
+
+/**
+ * Verifica si la caché está obsoleta pero usable
+ */
+const isCacheStale = (cacheKey) => {
+  const cached = cache[cacheKey];
+  if (!cached.data) return false;
+  const age = Date.now() - cached.timestamp;
+  return age < CACHE_STALE_TIME;
+};
+
+/**
+ * Invalida la caché para forzar re-fetch en la próxima llamada
+ */
+const invalidateCache = (cacheKey) => {
+  if (cache[cacheKey]) {
+    cache[cacheKey].timestamp = 0; // Forzar expiración
+    console.log(`🗑️ Caché invalidada: ${cacheKey}`);
+  }
+};
+
 // ==================== SISTEMA DE REINTENTOS Y MANEJO DE ERRORES ====================
 const RETRY_CONFIG = {
   maxRetries: 3,
@@ -179,21 +220,55 @@ const getPedidosLocal = () => {
 
 // Versión FIREBASE optimizada con reintentos
 const getPedidosFirebase = async () => {
+  const cacheKey = 'pedidos';
+  
+  if (isCacheFresh(cacheKey)) {
+    console.log('⚡ Pedidos desde caché fresca');
+    return cache[cacheKey].data;
+  }
+  
+  if (isCacheStale(cacheKey) && !cache[cacheKey].loading) {
+    console.log('📦 Pedidos desde caché obsoleta, actualizando en background...');
+    const staleData = cache[cacheKey].data;
+    
+    cache[cacheKey].loading = true;
+    ejecutarConReintentos(async () => {
+      const querySnapshot = await getDocs(
+        query(collection(db, pedidosCollection), orderBy('fecha', 'desc'))
+      );
+      const pedidos = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: String(doc.id || ''),
+          cliente: String(data.cliente || ''),
+          direccion: String(data.direccion || ''),
+          telefono: String(data.telefono || ''),
+          productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
+          total: Number(data.total) || 0,
+          metodo_pago: String(data.metodo_pago || 'Efectivo'),
+          repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
+          estado: String(data.estado || 'Recibido'),
+          fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+          timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
+        };
+      });
+      cache[cacheKey] = { data: pedidos, timestamp: Date.now(), loading: false };
+      setLocalData('pedidos_domicilio_cache', pedidos);
+    }, 'getPedidos').catch(() => { cache[cacheKey].loading = false; });
+    
+    return staleData;
+  }
+  
   return ejecutarConReintentos(async () => {
-    console.log("Obteniendo pedidos desde Firebase...");
+    console.log("🔄 Obteniendo pedidos desde Firebase...");
+    cache[cacheKey].loading = true;
     
     const querySnapshot = await getDocs(
-      query(
-        collection(db, pedidosCollection),
-        orderBy('fecha', 'desc')
-      )
+      query(collection(db, pedidosCollection), orderBy('fecha', 'desc'))
     );
-    
     const pedidos = querySnapshot.docs.map(doc => {
       const data = doc.data();
-      
-      // Sanitizar TODOS los campos para evitar objetos
-      const pedidoSanitizado = {
+      return {
         id: String(doc.id || ''),
         cliente: String(data.cliente || ''),
         direccion: String(data.direccion || ''),
@@ -203,39 +278,23 @@ const getPedidosFirebase = async () => {
         metodo_pago: String(data.metodo_pago || 'Efectivo'),
         repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
         estado: String(data.estado || 'Recibido'),
-        fecha: data.fecha?.toDate
-          ? data.fecha.toDate().toLocaleDateString('es-ES')
-          : String(data.fecha || 'N/A'),
-        timestamp: data.fecha?.toDate
-          ? data.fecha.toDate().toISOString()
-          : new Date().toISOString()
+        fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+        timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
       };
-      
-      return pedidoSanitizado;
     });
     
-    console.log(`✅ ${pedidos.length} pedidos obtenidos de Firebase`);
-    
-    // Guardar en caché local como respaldo
-    if (pedidos.length > 0) {
-      try {
-        setLocalData('pedidos_domicilio_cache', pedidos);
-      } catch (e) {
-        console.warn('No se pudo guardar caché de pedidos:', e);
-      }
-    }
-    
+    cache[cacheKey] = { data: pedidos, timestamp: Date.now(), loading: false };
+    setLocalData('pedidos_domicilio_cache', pedidos);
+    console.log(`✅ ${pedidos.length} pedidos obtenidos`);
     return pedidos;
   }, 'getPedidos').catch(error => {
+    cache[cacheKey].loading = false;
     console.error('Error al obtener pedidos:', error);
-    
-    // Intentar usar caché local como fallback
-    const cache = getLocalData('pedidos_domicilio_cache');
-    if (cache && cache.length > 0) {
+    const cachedData = getLocalData('pedidos_domicilio_cache');
+    if (cachedData && cachedData.length > 0) {
       toast.error('Usando datos en caché. Verifica tu conexión.');
-      return cache;
+      return cachedData;
     }
-    
     toast.error('Error al cargar pedidos');
     return [];
   });
@@ -283,6 +342,7 @@ const addPedidoFirebase = async (pedidoData) => {
     };
 
     const docRef = await addDoc(collection(db, pedidosCollection), pedido);
+    invalidateCache('pedidos'); // Invalidar caché para refrescar datos
     toast.success('Información guardada con éxito');
     
     // Devolver con fecha como string para evitar error React #31
@@ -326,6 +386,7 @@ const updatePedidoLocal = (id, pedidoData) => {
 const updatePedidoFirebase = async (id, pedidoData) => {
   return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, pedidosCollection, id), pedidoData);
+    invalidateCache('pedidos');
     toast.success('Información guardada con éxito');
   }, 'updatePedido').catch(error => {
     console.error('Error al actualizar pedido:', error);
@@ -348,6 +409,7 @@ const deletePedidoLocal = (id) => {
 const deletePedidoFirebase = async (id) => {
   return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, pedidosCollection, id));
+    invalidateCache('pedidos');
     toast.success('Información guardada con éxito');
   }, 'deletePedido').catch(error => {
     console.error('Error al eliminar pedido:', error);
@@ -366,56 +428,71 @@ const getRepartidoresLocal = () => {
   return getLocalData('repartidores');
 };
 
-// Versión FIREBASE optimizada con reintentos
+// Versión FIREBASE optimizada con SWR
 const getRepartidoresFirebase = async () => {
+  const cacheKey = 'repartidores';
+  
+  if (isCacheFresh(cacheKey)) {
+    console.log('⚡ Repartidores desde caché fresca');
+    return cache[cacheKey].data;
+  }
+  
+  if (isCacheStale(cacheKey) && !cache[cacheKey].loading) {
+    console.log('📦 Repartidores desde caché obsoleta, actualizando...');
+    const staleData = cache[cacheKey].data;
+    
+    cache[cacheKey].loading = true;
+    ejecutarConReintentos(async () => {
+      const querySnapshot = await getDocs(collection(db, repartidoresCollection));
+      const repartidores = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: String(doc.id || ''),
+          nombre: String(data.nombre || ''),
+          vehiculo: String(data.vehiculo || ''),
+          placa: String(data.placa || ''),
+          telefono: String(data.telefono || ''),
+          disponibilidad: Boolean(data.disponibilidad !== undefined ? data.disponibilidad : true),
+          fechaRegistro: data.fechaRegistro?.toDate ? data.fechaRegistro.toDate().toLocaleDateString('es-ES') : String(data.fechaRegistro || 'N/A')
+        };
+      });
+      cache[cacheKey] = { data: repartidores, timestamp: Date.now(), loading: false };
+      setLocalData('repartidores_cache', repartidores);
+    }, 'getRepartidores').catch(() => { cache[cacheKey].loading = false; });
+    
+    return staleData;
+  }
+  
   return ejecutarConReintentos(async () => {
-    console.log("Obteniendo repartidores desde Firebase...");
+    console.log("🔄 Obteniendo repartidores desde Firebase...");
+    cache[cacheKey].loading = true;
     
-    const querySnapshot = await getDocs(
-      collection(db, repartidoresCollection)
-    );
-    
+    const querySnapshot = await getDocs(collection(db, repartidoresCollection));
     const repartidores = querySnapshot.docs.map(doc => {
       const data = doc.data();
-      
-      // Sanitizar TODOS los campos para evitar objetos
-      const repartidorSanitizado = {
+      return {
         id: String(doc.id || ''),
         nombre: String(data.nombre || ''),
         vehiculo: String(data.vehiculo || ''),
         placa: String(data.placa || ''),
         telefono: String(data.telefono || ''),
         disponibilidad: Boolean(data.disponibilidad !== undefined ? data.disponibilidad : true),
-        fechaRegistro: data.fechaRegistro?.toDate
-          ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
-          : String(data.fechaRegistro || 'N/A')
+        fechaRegistro: data.fechaRegistro?.toDate ? data.fechaRegistro.toDate().toLocaleDateString('es-ES') : String(data.fechaRegistro || 'N/A')
       };
-      
-      return repartidorSanitizado;
     });
     
-    console.log(`✅ ${repartidores.length} repartidores obtenidos de Firebase`);
-    
-    // Guardar en caché local como respaldo
-    if (repartidores.length > 0) {
-      try {
-        setLocalData('repartidores_cache', repartidores);
-      } catch (e) {
-        console.warn('No se pudo guardar caché de repartidores:', e);
-      }
-    }
-    
+    cache[cacheKey] = { data: repartidores, timestamp: Date.now(), loading: false };
+    setLocalData('repartidores_cache', repartidores);
+    console.log(`✅ ${repartidores.length} repartidores obtenidos`);
     return repartidores;
   }, 'getRepartidores').catch(error => {
+    cache[cacheKey].loading = false;
     console.error('Error al obtener repartidores:', error);
-    
-    // Intentar usar caché local como fallback
-    const cache = getLocalData('repartidores_cache');
-    if (cache && cache.length > 0) {
+    const cachedData = getLocalData('repartidores_cache');
+    if (cachedData && cachedData.length > 0) {
       toast.error('Usando datos en caché. Verifica tu conexión.');
-      return cache;
+      return cachedData;
     }
-    
     toast.error('Error al cargar repartidores');
     return [];
   });
@@ -457,6 +534,7 @@ const addRepartidorFirebase = async (repartidorData) => {
     };
 
     const docRef = await addDoc(collection(db, repartidoresCollection), repartidor);
+    invalidateCache('repartidores');
     toast.success('Información guardada con éxito');
     
     // Devolver con fechaRegistro como string para evitar error React #31
@@ -496,6 +574,7 @@ const updateRepartidorLocal = (id, repartidorData) => {
 const updateRepartidorFirebase = async (id, repartidorData) => {
   return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, repartidoresCollection, id), repartidorData);
+    invalidateCache('repartidores');
     toast.success('Información guardada con éxito');
   }, 'updateRepartidor').catch(error => {
     console.error('Error al actualizar repartidor:', error);
@@ -518,6 +597,7 @@ const deleteRepartidorLocal = (id) => {
 const deleteRepartidorFirebase = async (id) => {
   return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, repartidoresCollection, id));
+    invalidateCache('repartidores');
     toast.success('Información guardada con éxito');
   }, 'deleteRepartidor').catch(error => {
     console.error('Error al eliminar repartidor:', error);
@@ -570,18 +650,54 @@ const getClientesLocal = () => {
 
 // Versión FIREBASE optimizada con reintentos
 const getClientesFirebase = async () => {
+  const cacheKey = 'clientes';
+  
+  // 1. Si la caché es fresca (< 30s), retornar inmediatamente
+  if (isCacheFresh(cacheKey)) {
+    console.log('⚡ Clientes desde caché fresca (< 30s)');
+    return cache[cacheKey].data;
+  }
+  
+  // 2. Si la caché está obsoleta pero usable, retornarla Y actualizar en background
+  if (isCacheStale(cacheKey) && !cache[cacheKey].loading) {
+    console.log('📦 Clientes desde caché obsoleta, actualizando en background...');
+    const staleData = cache[cacheKey].data;
+    
+    // Actualizar en background sin esperar
+    cache[cacheKey].loading = true;
+    ejecutarConReintentos(async () => {
+      const querySnapshot = await getDocs(collection(db, clientesCollection));
+      const clientes = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: String(doc.id || ''),
+          nombre: String(data.nombre || ''),
+          direccion_habitual: String(data.direccion_habitual || ''),
+          telefono: String(data.telefono || ''),
+          email: String(data.email || ''),
+          fechaRegistro: data.fechaRegistro?.toDate 
+            ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
+            : String(data.fechaRegistro || 'N/A')
+        };
+      });
+      
+      cache[cacheKey] = { data: clientes, timestamp: Date.now(), loading: false };
+      setLocalData('clientes_cache', clientes);
+      console.log(`✅ ${clientes.length} clientes actualizados en background`);
+    }, 'getClientes').catch(() => { cache[cacheKey].loading = false; });
+    
+    return staleData;
+  }
+  
+  // 3. Sin caché válida, hacer fetch completo
   return ejecutarConReintentos(async () => {
-    console.log("Obteniendo clientes desde Firebase...");
+    console.log("🔄 Obteniendo clientes desde Firebase...");
+    cache[cacheKey].loading = true;
     
-    const querySnapshot = await getDocs(
-      collection(db, clientesCollection)
-    );
-    
+    const querySnapshot = await getDocs(collection(db, clientesCollection));
     const clientes = querySnapshot.docs.map(doc => {
       const data = doc.data();
-      
-      // Sanitizar TODOS los campos para evitar objetos
-      const clienteSanitizado = {
+      return {
         id: String(doc.id || ''),
         nombre: String(data.nombre || ''),
         direccion_habitual: String(data.direccion_habitual || ''),
@@ -591,32 +707,21 @@ const getClientesFirebase = async () => {
           ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
           : String(data.fechaRegistro || 'N/A')
       };
-      
-      return clienteSanitizado;
     });
     
+    cache[cacheKey] = { data: clientes, timestamp: Date.now(), loading: false };
+    setLocalData('clientes_cache', clientes);
     console.log(`✅ ${clientes.length} clientes obtenidos de Firebase`);
-    
-    // Guardar en caché local como respaldo
-    if (clientes.length > 0) {
-      try {
-        setLocalData('clientes_cache', clientes);
-      } catch (e) {
-        console.warn('No se pudo guardar caché de clientes:', e);
-      }
-    }
     
     return clientes;
   }, 'getClientes').catch(error => {
+    cache[cacheKey].loading = false;
     console.error('Error al obtener clientes:', error);
-    
-    // Intentar usar caché local como fallback
-    const cache = getLocalData('clientes_cache');
-    if (cache && cache.length > 0) {
+    const cachedData = getLocalData('clientes_cache');
+    if (cachedData && cachedData.length > 0) {
       toast.error('Usando datos en caché. Verifica tu conexión.');
-      return cache;
+      return cachedData;
     }
-    
     toast.error('Error al cargar clientes');
     return [];
   });
@@ -660,6 +765,7 @@ const addClienteFirebase = async (clienteData, silent = false) => {
     }
     
     const docRef = await addDoc(collection(db, clientesCollection), cliente);
+    invalidateCache('clientes');
     
     if (!silent) {
       console.log('✅ Cliente guardado exitosamente en Firestore con ID:', docRef.id);
@@ -704,6 +810,7 @@ const updateClienteLocal = (id, clienteData) => {
 const updateClienteFirebase = async (id, clienteData) => {
   return ejecutarConReintentos(async () => {
     await updateDoc(doc(db, clientesCollection, id), clienteData);
+    invalidateCache('clientes');
     toast.success('Información guardada con éxito');
   }, 'updateCliente').catch(error => {
     console.error('Error al actualizar cliente:', error);
@@ -726,6 +833,7 @@ const deleteClienteLocal = (id) => {
 const deleteClienteFirebase = async (id) => {
   return ejecutarConReintentos(async () => {
     await deleteDoc(doc(db, clientesCollection, id));
+    invalidateCache('clientes');
     toast.success('Información guardada con éxito');
   }, 'deleteCliente').catch(error => {
     console.error('Error al eliminar cliente:', error);
