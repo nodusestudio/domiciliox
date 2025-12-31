@@ -18,6 +18,11 @@ const Orders = () => {
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
+  // Estados para modal de confirmación de cierre
+  const [showModalCierre, setShowModalCierre] = useState(false);
+  const [fechaCierre, setFechaCierre] = useState('');
+  const [horaCierre, setHoraCierre] = useState('');
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [clienteSugerencias, setClienteSugerencias] = useState([]);
   const [showSugerencias, setShowSugerencias] = useState(false);
@@ -290,31 +295,85 @@ const Orders = () => {
   const totalTarjeta = pedidosDelDia.filter(p => p.metodo_pago === 'Tarjeta').reduce((sum, p) => sum + p.total_a_recibir, 0);
 
   /**
-   * Guarda la jornada actual en el historial sin limpiar los pedidos
-   * 
-   * Funcionalidad:
-   * - Genera snapshot de todos los pedidos del día con totalizadores
-   * - Almacena en historial_jornadas para consultas posteriores en Reportes
-   * - NO limpia los pedidos del día (diferencia clave con Cerrar Jornada)
-   * 
-   * Caso de Uso:
-   * Permite crear respaldos intermedios durante el día sin perder
-   * los pedidos en proceso. Útil para:
-   * - Cortes de caja intermedios
-   * - Cambios de turno
-   * - Reportes a mitad de jornada
+   * Abre el modal de confirmación para cerrar la jornada
+   * Inicializa con la fecha y hora actual
    */
-  const handleGuardarJornada = async () => {
+  const abrirModalCierre = () => {
     if (pedidosDelDia.length === 0) {
-      toast.error('No hay pedidos para guardar');
+      toast.error('No hay pedidos para cerrar');
+      return;
+    }
+
+    // Inicializar con fecha y hora actual
+    const ahora = new Date();
+    const fecha = ahora.toISOString().split('T')[0]; // YYYY-MM-DD
+    const hora = ahora.toTimeString().slice(0, 5); // HH:mm
+    
+    setFechaCierre(fecha);
+    setHoraCierre(hora);
+    setShowModalCierre(true);
+  };
+
+  /**
+   * Cierra la jornada laboral: guarda pedidos en Firestore, genera reportes y limpia
+   * 
+   * Proceso Completo:
+   * 1. Valida que haya pedidos para cerrar
+   * 2. GUARDA TODOS LOS PEDIDOS EN FIRESTORE (lo que hacía "Guardar Todo")
+   * 3. Crea snapshot final de la jornada con todos los totalizadores
+   * 4. Guarda en historial_jornadas marcado como "cerrada: true"
+   * 5. Guarda jornadas individuales por repartidor en Firestore
+   * 6. LIMPIA todos los pedidos del día para iniciar nueva jornada
+   * 7. Resetea el localStorage de pedidos activos
+   * 
+   * Uso Típico:
+   * Ejecutar al final del día laboral para:
+   * - Generar corte de caja final
+   * - Persistir pedidos en Firestore
+   * - Limpiar pantalla para el día siguiente
+   * - Archivar pedidos en historial permanente
+   */
+  const handleCerrarJornada = async () => {
+    if (pedidosDelDia.length === 0) {
+      toast.error('No hay pedidos para cerrar');
       return;
     }
 
     try {
+      // Cerrar modal inmediatamente
+      setShowModalCierre(false);
+      
+      // Mostrar loading
+      const loadingToast = toast.loading('Guardando jornada...');
+
+      // 1. GUARDAR TODOS LOS PEDIDOS EN FIRESTORE (antes de cerrar)
+      const { addPedido } = await import('../services/firebaseService');
+      console.log('💾 Guardando', pedidosDelDia.length, 'pedidos en Firestore...');
+      
+      const promesasPedidos = pedidosDelDia.map(pedido => 
+        addPedido({
+          cliente: pedido.cliente,
+          direccion: pedido.direccion,
+          telefono: pedido.telefono,
+          valor_pedido: pedido.valor_pedido,
+          costo_envio: pedido.costo_envio,
+          total_a_recibir: pedido.total_a_recibir,
+          metodo_pago: pedido.metodo_pago,
+          repartidor_id: pedido.repartidor_id,
+          repartidor_nombre: pedido.repartidor_nombre,
+          entregado: pedido.entregado
+        })
+      );
+      
+      await Promise.all(promesasPedidos);
+      console.log('✅ Todos los pedidos guardados en Firestore');
+
+      // 2. Crear objeto de jornada con fecha personalizada
+      const fechaHoraCierre = new Date(`${fechaCierre}T${horaCierre}:00`);
       const jornada = {
         id: Date.now(),
-        fecha: new Date().toLocaleDateString('es-ES'),
-        timestamp: new Date().toISOString(),
+        fecha: fechaHoraCierre.toLocaleDateString('es-ES'),
+        timestamp: fechaHoraCierre.toISOString(),
         pedidos: pedidosDelDia,
         totales: {
           cantidad_pedidos: pedidosDelDia.length,
@@ -323,18 +382,55 @@ const Orders = () => {
           total_a_recibir: totalARecibir,
           total_efectivo: totalEfectivo,
           total_tarjeta: totalTarjeta
-        }
+        },
+        cerrada: true
       };
 
-      // Guardar en historial de jornadas
+      // 3. Guardar en historial de jornadas (localStorage para reportes)
       const historial = JSON.parse(localStorage.getItem('historial_jornadas') || '[]');
       historial.unshift(jornada);
       localStorage.setItem('historial_jornadas', JSON.stringify(historial));
 
-      toast.success('Jornada guardada en Reportes');
+      // 4. Guardar jornadas por repartidor en Firestore
+      const pedidosPorRepartidor = {};
+      pedidosDelDia.forEach(pedido => {
+        const key = pedido.repartidor_id || 'sin_asignar';
+        const nombre = pedido.repartidor_nombre || 'Sin Asignar';
+        
+        if (!pedidosPorRepartidor[key]) {
+          pedidosPorRepartidor[key] = {
+            id_repartidor: key,
+            nombre: nombre,
+            total_pedidos_valor: 0,
+            total_costos_envio: 0,
+            cantidad_entregas: 0
+          };
+        }
+        
+        pedidosPorRepartidor[key].total_pedidos_valor += pedido.valor_pedido;
+        pedidosPorRepartidor[key].total_costos_envio += pedido.costo_envio;
+        pedidosPorRepartidor[key].cantidad_entregas++;
+      });
+
+      // Guardar en Firestore solo repartidores con pedidos asignados
+      const { addJornadaRepartidor } = await import('../services/firebaseService');
+      const promesasRepartidores = Object.values(pedidosPorRepartidor)
+        .filter(rep => rep.id_repartidor !== 'sin_asignar')
+        .map(rep => addJornadaRepartidor(rep));
+      
+      await Promise.all(promesasRepartidores);
+      console.log(`✅ ${promesasRepartidores.length} jornadas de repartidores guardadas en Firestore`);
+
+      // 5. Limpiar pedidos del día para nueva jornada
+      setPedidos([]);
+      localStorage.setItem('pedidos', JSON.stringify([]));
+
+      toast.dismiss(loadingToast);
+      toast.success(`Jornada cerrada: ${pedidosDelDia.length} pedidos guardados`);
       
     } catch (error) {
-      toast.error('No se pudo guardar la jornada. Inténtalo nuevamente.');
+      console.error('❌ Error al cerrar jornada:', error);
+      toast.error('No se pudo cerrar la jornada. Inténtalo nuevamente.');
     }
   };
 
@@ -383,95 +479,6 @@ const Orders = () => {
       // Sincronización completada exitosamente
     } catch (error) {
       toast.error('Error al sincronizar con la nube');
-    }
-  };
-
-  /**
-   * Cierra la jornada laboral guardando y limpiando todos los pedidos del día
-   * 
-   * Proceso Completo:
-   * 1. Crea snapshot final de la jornada con todos los totalizadores
-   * 2. Guarda en historial_jornadas marcado como "cerrada: true"
-   * 3. LIMPIA todos los pedidos del día para iniciar nueva jornada
-   * 4. Resetea el localStorage de pedidos activos
-   * 
-   * Diferencia vs Guardar Jornada:
-   * - Guardar: Crea respaldo pero mantiene pedidos activos
-   * - Cerrar: Guarda Y limpia para terminar el día
-   * 
-   * Uso Típico:
-   * Ejecutar al final del día laboral para:
-   * - Generar corte de caja final
-   * - Limpiar pantalla para el día siguiente
-   * - Archivar pedidos en historial permanente
-   */
-  const handleCerrarJornada = async () => {
-    if (pedidosDelDia.length === 0) {
-      toast.error('No hay pedidos para cerrar');
-      return;
-    }
-
-    try {
-      const jornada = {
-        id: Date.now(),
-        fecha: new Date().toLocaleDateString('es-ES'),
-        timestamp: new Date().toISOString(),
-        pedidos: pedidosDelDia,
-        totales: {
-          cantidad_pedidos: pedidosDelDia.length,
-          total_valor_pedidos: totalValorPedidos,
-          total_costos_envio: totalCostosEnvio,
-          total_a_recibir: totalARecibir,
-          total_efectivo: totalEfectivo,
-          total_tarjeta: totalTarjeta
-        },
-        cerrada: true
-      };
-
-      // Guardar en historial de jornadas
-      const historial = JSON.parse(localStorage.getItem('historial_jornadas') || '[]');
-      historial.unshift(jornada);
-      localStorage.setItem('historial_jornadas', JSON.stringify(historial));
-
-      // Guardar jornadas por repartidor en Firestore
-      const pedidosPorRepartidor = {};
-      pedidosDelDia.forEach(pedido => {
-        const key = pedido.repartidor_id || 'sin_asignar';
-        const nombre = pedido.repartidor_nombre || 'Sin Asignar';
-        
-        if (!pedidosPorRepartidor[key]) {
-          pedidosPorRepartidor[key] = {
-            id_repartidor: key,
-            nombre: nombre,
-            total_pedidos_valor: 0,
-            total_costos_envio: 0,
-            cantidad_entregas: 0
-          };
-        }
-        
-        pedidosPorRepartidor[key].total_pedidos_valor += pedido.valor_pedido;
-        pedidosPorRepartidor[key].total_costos_envio += pedido.costo_envio;
-        pedidosPorRepartidor[key].cantidad_entregas++;
-      });
-
-      // Guardar en Firestore solo repartidores con pedidos asignados
-      const { addJornadaRepartidor } = await import('../services/firebaseService');
-      const promesas = Object.values(pedidosPorRepartidor)
-        .filter(rep => rep.id_repartidor !== 'sin_asignar')
-        .map(rep => addJornadaRepartidor(rep));
-      
-      await Promise.all(promesas);
-      console.log(`✅ ${promesas.length} jornadas de repartidores guardadas en Firestore`);
-
-      // Limpiar pedidos del día para nueva jornada
-      setPedidos([]);
-      localStorage.setItem('pedidos', JSON.stringify([]));
-
-      toast.success('Jornada cerrada y guardada en Reportes');
-      
-    } catch (error) {
-      console.error('❌ Error al cerrar jornada:', error);
-      toast.error('No se pudo cerrar la jornada. Inténtalo nuevamente.');
     }
   };
 
@@ -888,14 +895,7 @@ const Orders = () => {
                 Exportar Reporte
               </button>
               <button
-                onClick={handleGuardarJornada}
-                className="flex items-center gap-2 px-6 py-3 bg-success text-white rounded-lg hover:bg-[#0d9668] transition-colors font-semibold"
-              >
-                <Save className="w-5 h-5" />
-                Guardar Todo
-              </button>
-              <button
-                onClick={handleCerrarJornada}
+                onClick={abrirModalCierre}
                 className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
               >
                 <Save className="w-5 h-5" />
@@ -992,7 +992,7 @@ const Orders = () => {
 
           <div className="mt-4 p-3 bg-primary/10 border border-primary/30 rounded-lg">
             <p className="text-sm text-primary">
-              💡 "Guardar Todo" registra en historial. "Cerrar Jornada" guarda en cierres diarios ({pedidosDelDia.length} pedidos).
+              � "Cerrar Jornada" guarda todos los pedidos en Firestore, genera reportes y limpia la pantalla ({pedidosDelDia.length} pedidos).
             </p>
           </div>
         </div>
@@ -1064,6 +1064,84 @@ const Orders = () => {
                   className="flex-1 px-4 py-2 bg-[#206DDA] text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 >
                   Guardar Cliente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmación de Cierre de Jornada */}
+      {showModalCierre && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-card border border-dark-border rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white">📅 Confirmar Fecha de Cierre</h3>
+              <button
+                onClick={() => setShowModalCierre(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
+                <p className="text-sm text-primary">
+                  💡 Puedes modificar la fecha si estás cerrando una jornada atrasada
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Fecha de Cierre *
+                </label>
+                <input
+                  type="date"
+                  value={fechaCierre}
+                  onChange={(e) => setFechaCierre(e.target.value)}
+                  className="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white focus:ring-2 focus:ring-primary focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Hora de Cierre *
+                </label>
+                <input
+                  type="time"
+                  value={horaCierre}
+                  onChange={(e) => setHoraCierre(e.target.value)}
+                  className="w-full px-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white focus:ring-2 focus:ring-primary focus:border-transparent"
+                />
+              </div>
+
+              <div className="bg-dark-bg border border-dark-border rounded-lg p-4">
+                <p className="text-sm text-gray-400 mb-2">Resumen del cierre:</p>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Pedidos:</span>
+                    <span className="text-white font-semibold">{pedidosDelDia.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total a Recibir:</span>
+                    <span className="text-success font-bold">${totalARecibir.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowModalCierre(false)}
+                  className="flex-1 px-4 py-2 bg-dark-bg border border-dark-border text-white rounded-lg hover:bg-dark-border transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCerrarJornada}
+                  className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                >
+                  ✅ Confirmar Cierre
                 </button>
               </div>
             </div>
