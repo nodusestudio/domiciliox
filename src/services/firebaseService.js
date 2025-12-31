@@ -189,10 +189,28 @@ const getPedidosFirebase = async () => {
       )
     );
     
-    const pedidos = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const pedidos = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Convertir Timestamp a string para evitar error React #31
+      return {
+        id: doc.id,
+        cliente: data.cliente || '',
+        direccion: data.direccion || '',
+        telefono: data.telefono || '',
+        productos_pedido: data.productos_pedido || [],
+        total: data.total || 0,
+        metodo_pago: data.metodo_pago || 'Efectivo',
+        repartidor_id: data.repartidor_id || null,
+        estado: data.estado || 'Recibido',
+        fecha: data.fecha?.toDate
+          ? data.fecha.toDate().toLocaleDateString('es-ES')
+          : data.fecha || new Date().toLocaleDateString('es-ES'),
+        timestamp: data.fecha?.toDate
+          ? data.fecha.toDate().toISOString()
+          : new Date().toISOString()
+      };
+    });
     
     console.log(`✅ ${pedidos.length} pedidos obtenidos de Firebase`);
     
@@ -249,6 +267,7 @@ const addPedidoLocal = (pedidoData) => {
 // Versión FIREBASE optimizada con reintentos
 const addPedidoFirebase = async (pedidoData) => {
   return ejecutarConReintentos(async () => {
+    const ahora = Timestamp.now();
     const pedido = {
       cliente: pedidoData.cliente || '',
       direccion: pedidoData.direccion || '',
@@ -258,12 +277,26 @@ const addPedidoFirebase = async (pedidoData) => {
       metodo_pago: pedidoData.metodo_pago || 'Efectivo',
       repartidor_id: pedidoData.repartidor_id || null,
       estado: pedidoData.estado || 'Recibido',
-      fecha: Timestamp.now()
+      fecha: ahora
     };
 
     const docRef = await addDoc(collection(db, pedidosCollection), pedido);
     toast.success('Información guardada con éxito');
-    return { id: docRef.id, ...pedido };
+    
+    // Devolver con fecha como string para evitar error React #31
+    return { 
+      id: docRef.id,
+      cliente: pedido.cliente,
+      direccion: pedido.direccion,
+      telefono: pedido.telefono,
+      productos_pedido: pedido.productos_pedido,
+      total: pedido.total,
+      metodo_pago: pedido.metodo_pago,
+      repartidor_id: pedido.repartidor_id,
+      estado: pedido.estado,
+      fecha: ahora.toDate().toLocaleDateString('es-ES'),
+      timestamp: ahora.toDate().toISOString()
+    };
   }, 'addPedido').catch(error => {
     console.error('Error al agregar pedido:', error);
     toast.error('Error al guardar pedido. Verifica los permisos de Firebase.');
@@ -340,10 +373,22 @@ const getRepartidoresFirebase = async () => {
       collection(db, repartidoresCollection)
     );
     
-    const repartidores = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const repartidores = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Convertir Timestamp a string para evitar error React #31
+      return {
+        id: doc.id,
+        nombre: data.nombre || '',
+        vehiculo: data.vehiculo || '',
+        placa: data.placa || '',
+        telefono: data.telefono || '',
+        disponibilidad: data.disponibilidad !== undefined ? data.disponibilidad : true,
+        fechaRegistro: data.fechaRegistro?.toDate
+          ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
+          : data.fechaRegistro || new Date().toLocaleDateString('es-ES')
+      };
+    });
     
     console.log(`✅ ${repartidores.length} repartidores obtenidos de Firebase`);
     
@@ -397,18 +442,29 @@ const addRepartidorLocal = (repartidorData) => {
 // Versión FIREBASE optimizada con reintentos
 const addRepartidorFirebase = async (repartidorData) => {
   return ejecutarConReintentos(async () => {
+    const ahora = Timestamp.now();
     const repartidor = {
       nombre: repartidorData.nombre || '',
       vehiculo: repartidorData.vehiculo || '',
       placa: repartidorData.placa || '',
       telefono: repartidorData.telefono || '',
       disponibilidad: repartidorData.disponibilidad !== undefined ? repartidorData.disponibilidad : true,
-      fechaRegistro: Timestamp.now()
+      fechaRegistro: ahora
     };
 
     const docRef = await addDoc(collection(db, repartidoresCollection), repartidor);
     toast.success('Información guardada con éxito');
-    return { id: docRef.id, ...repartidor };
+    
+    // Devolver con fechaRegistro como string para evitar error React #31
+    return { 
+      id: docRef.id,
+      nombre: repartidor.nombre,
+      vehiculo: repartidor.vehiculo,
+      placa: repartidor.placa,
+      telefono: repartidor.telefono,
+      disponibilidad: repartidor.disponibilidad,
+      fechaRegistro: ahora.toDate().toLocaleDateString('es-ES')
+    };
   }, 'addRepartidor').catch(error => {
     console.error('Error al agregar repartidor:', error);
     toast.error('Error al guardar repartidor. Verifica los permisos.');
@@ -485,10 +541,21 @@ const getClientesFirebase = async () => {
       collection(db, clientesCollection)
     );
     
-    const clientes = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const clientes = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      
+      // Convertir Timestamp a string para evitar error React #31
+      return {
+        id: doc.id,
+        nombre: data.nombre || '',
+        direccion_habitual: data.direccion_habitual || '',
+        telefono: data.telefono || '',
+        email: data.email || '',
+        fechaRegistro: data.fechaRegistro?.toDate 
+          ? data.fechaRegistro.toDate().toLocaleDateString('es-ES')
+          : data.fechaRegistro || new Date().toLocaleDateString('es-ES')
+      };
+    });
     
     console.log(`✅ ${clientes.length} clientes obtenidos de Firebase`);
     
@@ -541,12 +608,13 @@ const addClienteLocal = (clienteData) => {
 // Versión FIREBASE optimizada con reintentos
 const addClienteFirebase = async (clienteData, silent = false) => {
   return ejecutarConReintentos(async () => {
+    const ahora = Timestamp.now();
     const cliente = {
       nombre: clienteData.nombre || '',
       direccion_habitual: clienteData.direccion_habitual || '',
       telefono: clienteData.telefono || '',
       email: clienteData.email || '',
-      fechaRegistro: Timestamp.now()
+      fechaRegistro: ahora
     };
 
     if (!silent) {
@@ -560,7 +628,15 @@ const addClienteFirebase = async (clienteData, silent = false) => {
       toast.success('Información guardada con éxito');
     }
     
-    return { id: docRef.id, ...cliente };
+    // Devolver con fechaRegistro como string para evitar error React #31
+    return { 
+      id: docRef.id, 
+      nombre: cliente.nombre,
+      direccion_habitual: cliente.direccion_habitual,
+      telefono: cliente.telefono,
+      email: cliente.email,
+      fechaRegistro: ahora.toDate().toLocaleDateString('es-ES')
+    };
   }, 'addCliente').catch(error => {
     console.error('❌ Error al agregar cliente:', error);
     if (!silent) {

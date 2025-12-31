@@ -324,11 +324,14 @@ export default function ClientIntelligence() {
                   <div className="flex-1">
                     <p className="text-white font-medium">${pedido.valor.toLocaleString()}</p>
                     <p className="text-sm text-gray-400">
-                      {pedido.fecha.toLocaleDateString('es-ES', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      })}
+                      {typeof pedido.fecha === 'string' 
+                        ? pedido.fecha 
+                        : pedido.fecha?.toLocaleDateString?.('es-ES', { 
+                            day: '2-digit', 
+                            month: 'short', 
+                            year: 'numeric' 
+                          }) || 'N/A'
+                      }
                     </p>
                   </div>
                   <div className="w-2 h-2 bg-primary rounded-full"></div>
@@ -521,7 +524,10 @@ export default function ClientIntelligence() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="text-gray-400">
-                          {cliente.ultimaFecha.toLocaleDateString('es-ES')}
+                          {typeof cliente.ultimaFecha === 'string'
+                            ? cliente.ultimaFecha
+                            : cliente.ultimaFecha?.toLocaleDateString?.('es-ES') || 'N/A'
+                          }
                           {diasDesdeUltimo > 0 && (
                             <p className={`text-xs ${esInactivo ? 'text-warning' : 'text-gray-500'}`}>
                               Hace {diasDesdeUltimo} días
