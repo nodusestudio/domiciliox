@@ -7,12 +7,14 @@ import {
   addCliente, 
   obtenerHistorialCostos, 
   guardarHistorialCosto,
-  sincronizarConNube 
+  sincronizarConNube,
+  getRepartidores
 } from '../services/firebaseService';
 
 const Orders = () => {
   const [pedidos, setPedidos] = useState([]);
   const [clientes, setClientes] = useState([]);
+  const [repartidores, setRepartidores] = useState([]);
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
@@ -49,9 +51,11 @@ const Orders = () => {
    */
   const cargarDatos = async () => {
     const clientesCargados = await getClientes();
+    const repartidoresCargados = await getRepartidores();
     const historialCargado = obtenerHistorialCostos();
     
     setClientes(clientesCargados || []);
+    setRepartidores(repartidoresCargados || []);
     setHistorialCostos(historialCargado);
     
     // Cargar pedidos del día que estaban en proceso
@@ -138,6 +142,8 @@ const Orders = () => {
         costo_envio: parseFloat(costoEnvio),
         total_a_recibir: parseFloat(valorPedido) - parseFloat(costoEnvio),
         metodo_pago: 'Efectivo',
+        repartidor_id: null,
+        repartidor_nombre: 'Sin Asignar',
         entregado: false,
         fecha: fechaFormato,
         hora: ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
@@ -156,6 +162,24 @@ const Orders = () => {
       toast.success('Pedido agregado con éxito');
       setSearchTerm('');
     }, 100);
+  };
+
+  const handleAsignarRepartidor = (pedidoId, repartidorId) => {
+    const repartidor = repartidores.find(r => r.id === repartidorId);
+    setPedidos(prev => {
+      const updated = prev.map(p => 
+        p.id === pedidoId 
+          ? { 
+              ...p, 
+              repartidor_id: repartidorId || null,
+              repartidor_nombre: repartidor ? repartidor.nombre : 'Sin Asignar'
+            }
+          : p
+      );
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      return updated;
+    });
+    toast.success('Repartidor asignado');
   };
 
   const toggleMetodoPago = (id) => {
@@ -603,6 +627,7 @@ const Orders = () => {
                 <th className="px-4 py-3 text-right text-sm font-semibold text-white">Valor Pedido</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold text-white">Costo Envío</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold text-success">Total a Recibir</th>
+                <th className="px-4 py-3 text-center text-sm font-semibold text-white">Repartidor</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Pago</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Entregado</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold text-white">Acciones</th>
@@ -611,7 +636,7 @@ const Orders = () => {
             <tbody className="divide-y divide-dark-border">
               {pedidosDelDia.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="px-6 py-12 text-center">
+                  <td colSpan="12" className="px-6 py-12 text-center">
                     <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
                     <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
                   </td>
@@ -753,6 +778,22 @@ const Orders = () => {
                       </div>
                     </td>
                     
+                    {/* Selector de Repartidor */}
+                    <td className="px-4 py-4 text-center">
+                      <select
+                        value={pedido.repartidor_id || ''}
+                        onChange={(e) => handleAsignarRepartidor(pedido.id, e.target.value)}
+                        className="px-3 py-2 bg-dark-border text-white rounded-lg border border-dark-border hover:border-primary focus:border-primary focus:outline-none transition-colors text-sm"
+                      >
+                        <option value="">Sin Asignar</option>
+                        {repartidores.map(rep => (
+                          <option key={rep.id} value={rep.id}>
+                            {rep.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    
                     {/* Método de Pago (Toggle) */}
                     <td className="px-4 py-4 text-center">
                       <button
@@ -861,6 +902,57 @@ const Orders = () => {
                 <span className="text-sm text-gray-400">Tarjeta</span>
                 <span className="text-xl font-bold text-primary">${totalTarjeta.toLocaleString()}</span>
               </div>
+            </div>
+          </div>
+
+          {/* Desglose por Repartidor */}
+          <div className="mt-6">
+            <h4 className="text-lg font-semibold text-white mb-3">📊 Desglose por Repartidor</h4>
+            <div className="grid grid-cols-1 gap-3">
+              {(() => {
+                // Agrupar pedidos por repartidor
+                const pedidosPorRepartidor = {};
+                
+                pedidosDelDia.forEach(pedido => {
+                  const key = pedido.repartidor_nombre || 'Sin Asignar';
+                  if (!pedidosPorRepartidor[key]) {
+                    pedidosPorRepartidor[key] = {
+                      nombre: key,
+                      pedidos: 0,
+                      valorPedidos: 0,
+                      costos: 0,
+                      total: 0
+                    };
+                  }
+                  pedidosPorRepartidor[key].pedidos++;
+                  pedidosPorRepartidor[key].valorPedidos += pedido.valor_pedido;
+                  pedidosPorRepartidor[key].costos += pedido.costo_envio;
+                  pedidosPorRepartidor[key].total += pedido.total_a_recibir;
+                });
+
+                return Object.values(pedidosPorRepartidor).map((rep, idx) => (
+                  <div key={idx} className="bg-dark-bg border border-dark-border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-white text-lg">{rep.nombre}</span>
+                      <span className="text-sm text-gray-400">{rep.pedidos} pedido(s)</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <span className="text-gray-400">Pedidos: </span>
+                        <span className="text-white font-medium">${rep.valorPedidos.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Costos: </span>
+                        <span className="text-warning font-medium">${rep.costos.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Total: </span>
+                        <span className="text-success font-bold">${rep.total.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
 
