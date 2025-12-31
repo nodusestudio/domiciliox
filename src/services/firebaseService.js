@@ -428,44 +428,10 @@ const getRepartidoresLocal = () => {
   return getLocalData('repartidores');
 };
 
-// Versión FIREBASE optimizada con SWR
+// Versión FIREBASE SIN CACHÉ (consulta directa)
 const getRepartidoresFirebase = async () => {
-  const cacheKey = 'repartidores';
-  
-  if (isCacheFresh(cacheKey)) {
-    console.log('⚡ Repartidores desde caché fresca');
-    return cache[cacheKey].data;
-  }
-  
-  if (isCacheStale(cacheKey) && !cache[cacheKey].loading) {
-    console.log('📦 Repartidores desde caché obsoleta, actualizando...');
-    const staleData = cache[cacheKey].data;
-    
-    cache[cacheKey].loading = true;
-    ejecutarConReintentos(async () => {
-      const querySnapshot = await getDocs(collection(db, repartidoresCollection));
-      const repartidores = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: String(doc.id || ''),
-          nombre: String(data.nombre || ''),
-          vehiculo: String(data.vehiculo || ''),
-          placa: String(data.placa || ''),
-          telefono: String(data.telefono || ''),
-          disponibilidad: Boolean(data.disponibilidad !== undefined ? data.disponibilidad : true),
-          fechaRegistro: data.fechaRegistro?.toDate ? data.fechaRegistro.toDate().toLocaleDateString('es-ES') : String(data.fechaRegistro || 'N/A')
-        };
-      });
-      cache[cacheKey] = { data: repartidores, timestamp: Date.now(), loading: false };
-      setLocalData('repartidores_cache', repartidores);
-    }, 'getRepartidores').catch(() => { cache[cacheKey].loading = false; });
-    
-    return staleData;
-  }
-  
   return ejecutarConReintentos(async () => {
-    console.log("🔄 Obteniendo repartidores desde Firebase...");
-    cache[cacheKey].loading = true;
+    console.log("🔄 Consultando repartidores directamente desde Firebase...");
     
     const querySnapshot = await getDocs(collection(db, repartidoresCollection));
     const repartidores = querySnapshot.docs.map(doc => {
@@ -481,19 +447,11 @@ const getRepartidoresFirebase = async () => {
       };
     });
     
-    cache[cacheKey] = { data: repartidores, timestamp: Date.now(), loading: false };
-    setLocalData('repartidores_cache', repartidores);
-    console.log(`✅ ${repartidores.length} repartidores obtenidos`);
+    console.log(`✅ ${repartidores.length} repartidores obtenidos desde Firebase`);
     return repartidores;
   }, 'getRepartidores').catch(error => {
-    cache[cacheKey].loading = false;
-    console.error('Error al obtener repartidores:', error);
-    const cachedData = getLocalData('repartidores_cache');
-    if (cachedData && cachedData.length > 0) {
-      toast.error('Usando datos en caché. Verifica tu conexión.');
-      return cachedData;
-    }
-    toast.error('Error al cargar repartidores');
+    console.error('❌ Error al obtener repartidores:', error);
+    toast.error('Error al cargar repartidores. Verifica la conexión.');
     return [];
   });
 };
@@ -523,33 +481,34 @@ const addRepartidorLocal = (repartidorData) => {
 // Versión FIREBASE optimizada con reintentos
 const addRepartidorFirebase = async (repartidorData) => {
   return ejecutarConReintentos(async () => {
+    console.log('💾 Guardando repartidor en Firebase...', repartidorData);
     const ahora = Timestamp.now();
     const repartidor = {
-      nombre: repartidorData.nombre || '',
-      vehiculo: repartidorData.vehiculo || '',
-      placa: repartidorData.placa || '',
-      telefono: repartidorData.telefono || '',
-      disponibilidad: repartidorData.disponibilidad !== undefined ? repartidorData.disponibilidad : true,
+      nombre: String(repartidorData.nombre || ''),
+      vehiculo: String(repartidorData.vehiculo || ''),
+      placa: String(repartidorData.placa || ''),
+      telefono: String(repartidorData.telefono || ''),
+      disponibilidad: Boolean(repartidorData.disponibilidad !== undefined ? repartidorData.disponibilidad : true),
       fechaRegistro: ahora
     };
 
     const docRef = await addDoc(collection(db, repartidoresCollection), repartidor);
-    invalidateCache('repartidores');
-    toast.success('Información guardada con éxito');
+    console.log('✅ Repartidor guardado con ID:', docRef.id);
+    toast.success('Repartidor guardado correctamente');
     
     // Devolver con fechaRegistro como string para evitar error React #31
     return { 
-      id: docRef.id,
-      nombre: repartidor.nombre,
-      vehiculo: repartidor.vehiculo,
-      placa: repartidor.placa,
-      telefono: repartidor.telefono,
-      disponibilidad: repartidor.disponibilidad,
+      id: String(docRef.id),
+      nombre: String(repartidor.nombre),
+      vehiculo: String(repartidor.vehiculo),
+      placa: String(repartidor.placa),
+      telefono: String(repartidor.telefono),
+      disponibilidad: Boolean(repartidor.disponibilidad),
       fechaRegistro: ahora.toDate().toLocaleDateString('es-ES')
     };
   }, 'addRepartidor').catch(error => {
-    console.error('Error al agregar repartidor:', error);
-    toast.error('Error al guardar repartidor. Verifica los permisos.');
+    console.error('❌ Error al agregar repartidor:', error);
+    toast.error('Error al guardar repartidor. Verifica los permisos de Firebase.');
     throw error;
   });
 };
@@ -573,11 +532,11 @@ const updateRepartidorLocal = (id, repartidorData) => {
 // Versión FIREBASE optimizada con reintentos
 const updateRepartidorFirebase = async (id, repartidorData) => {
   return ejecutarConReintentos(async () => {
+    console.log('📝 Actualizando repartidor:', id, repartidorData);
     await updateDoc(doc(db, repartidoresCollection, id), repartidorData);
-    invalidateCache('repartidores');
-    toast.success('Información guardada con éxito');
+    toast.success('Repartidor actualizado correctamente');
   }, 'updateRepartidor').catch(error => {
-    console.error('Error al actualizar repartidor:', error);
+    console.error('❌ Error al actualizar repartidor:', error);
     toast.error('Error al actualizar repartidor. Verifica los permisos.');
     throw error;
   });
@@ -596,8 +555,8 @@ const deleteRepartidorLocal = (id) => {
 // Versión FIREBASE optimizada con reintentos
 const deleteRepartidorFirebase = async (id) => {
   return ejecutarConReintentos(async () => {
+    console.log('🗑️ Eliminando repartidor:', id);
     await deleteDoc(doc(db, repartidoresCollection, id));
-    invalidateCache('repartidores');
     toast.success('Información guardada con éxito');
   }, 'deleteRepartidor').catch(error => {
     console.error('Error al eliminar repartidor:', error);

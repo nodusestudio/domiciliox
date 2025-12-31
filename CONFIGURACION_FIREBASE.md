@@ -16,36 +16,69 @@ VITE_FIREBASE_APP_ID=tu_app_id
 
 ## Reglas de Seguridad Firestore
 
+**IMPORTANTE**: Copia estas reglas exactamente en Firebase Console → Firestore Database → Reglas
+
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // ⚠️ MODO DESARROLLO - Permite lectura/escritura sin autenticación
+    // Para producción, implementar autenticación y restaurar reglas seguras
+    
     // Regla para historial_domicilios
+    match /historial_domicilios/{document} {
+      allow read, write: if true;
+    }
+    
+    // Regla para pedidos_domicilio
+    match /pedidos_domicilio/{document} {
+      allow read, write: if true;
+    }
+    
+    // Regla para clientes
+    match /clientes/{document} {
+      allow read, write: if true;
+    }
+    
+    // Regla para repartidores
+    match /repartidores/{document} {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+**Reglas Seguras (para futuro con autenticación)**:
+```javascript
+// Descomenta estas reglas cuando implementes autenticación
+/*
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
     match /historial_domicilios/{document} {
       allow read, write: if request.auth != null 
         && request.resource.data.userId == request.auth.uid;
     }
     
-    // Regla para pedidos_domicilio
     match /pedidos_domicilio/{document} {
       allow read, write: if request.auth != null 
         && request.resource.data.userId == request.auth.uid;
     }
     
-    // Regla para clientes
     match /clientes/{document} {
       allow read, write: if request.auth != null 
         && request.resource.data.userId == request.auth.uid;
     }
     
-    // Regla para repartidores
     match /repartidores/{document} {
       allow read, write: if request.auth != null 
         && request.resource.data.userId == request.auth.uid;
     }
   }
 }
+*/
 ```
 
 ## Estructura de Datos

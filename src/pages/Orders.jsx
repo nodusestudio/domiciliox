@@ -784,9 +784,12 @@ const Orders = () => {
                         value={pedido.repartidor_id || ''}
                         onChange={(e) => handleAsignarRepartidor(pedido.id, e.target.value)}
                         className="px-3 py-2 bg-dark-border text-white rounded-lg border border-dark-border hover:border-primary focus:border-primary focus:outline-none transition-colors text-sm"
+                        disabled={!repartidores || repartidores.length === 0}
                       >
-                        <option value="">Sin Asignar</option>
-                        {repartidores.map(rep => (
+                        <option value="">
+                          {!repartidores || repartidores.length === 0 ? 'No hay repartidores' : 'Sin Asignar'}
+                        </option>
+                        {repartidores && repartidores.length > 0 && repartidores.map(rep => (
                           <option key={rep.id} value={rep.id}>
                             {rep.nombre}
                           </option>

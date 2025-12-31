@@ -29,8 +29,10 @@ export default function Repartidores() {
   }, []);
 
   const cargarRepartidores = async () => {
+    console.log('🔄 Cargando repartidores...');
     const repartidoresCargados = await getRepartidores();
-    setRepartidores(repartidoresCargados || []);
+    console.log('✅ Repartidores cargados:', repartidoresCargados);
+    setRepartidores(Array.isArray(repartidoresCargados) ? repartidoresCargados : []);
   };
 
   const handleInputChange = (e) => {
@@ -47,7 +49,7 @@ export default function Repartidores() {
     return regex.test(telefono);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!formData.nombre || !formData.vehiculo || !formData.telefono) {
@@ -60,16 +62,22 @@ export default function Repartidores() {
       return;
     }
 
-    if (editingId) {
-      // Actualizar repartidor
-      updateRepartidor(editingId, formData);
-    } else {
-      // Agregar nuevo repartidor
-      addRepartidor(formData);
-    }
+    try {
+      if (editingId) {
+        // Actualizar repartidor
+        console.log('🔄 Actualizando repartidor...', editingId, formData);
+        await updateRepartidor(editingId, formData);
+      } else {
+        // Agregar nuevo repartidor
+        console.log('➕ Agregando nuevo repartidor...', formData);
+        await addRepartidor(formData);
+      }
 
-    resetForm();
-    cargarRepartidores(); // Recargar lista
+      resetForm();
+      await cargarRepartidores(); // Recargar lista
+    } catch (error) {
+      console.error('❌ Error en handleSubmit:', error);
+    }
   };
 
   const handleEdit = (repartidor) => {
@@ -84,10 +92,15 @@ export default function Repartidores() {
     setShowModal(true);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (confirm('¿Estás seguro de eliminar este repartidor?')) {
-      deleteRepartidor(id);
-      cargarRepartidores(); // Recargar lista
+      try {
+        console.log('🗑️ Eliminando repartidor...', id);
+        await deleteRepartidor(id);
+        await cargarRepartidores(); // Recargar lista
+      } catch (error) {
+        console.error('❌ Error al eliminar repartidor:', error);
+      }
     }
   };
 
