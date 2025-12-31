@@ -8,7 +8,9 @@ import {
   obtenerHistorialCostos, 
   guardarHistorialCosto,
   sincronizarConNube,
-  getRepartidores
+  getRepartidores,
+  guardarCierreDiario,
+  updatePedido
 } from '../services/firebaseService';
 
 const Orders = () => {
@@ -44,6 +46,7 @@ const Orders = () => {
   const [showModalCierre, setShowModalCierre] = useState(false);
   const [fechaCierre, setFechaCierre] = useState('');
   const [horaCierre, setHoraCierre] = useState('');
+  const [loadingCierreTurno, setLoadingCierreTurno] = useState(false);
   
   // Estado para filtro de repartidor
   const [filtroRepartidor, setFiltroRepartidor] = useState('');
@@ -372,19 +375,20 @@ const Orders = () => {
     }
   };
 
-  // Pedidos del día actual (orden inverso: más reciente arriba)
+  // Pedidos del día actual (orden inverso: más reciente arriba) - excluir archivados
   const pedidosDelDia = pedidos.filter(p => {
     const hoy = new Date().toLocaleDateString('es-ES');
     // Extraer solo la parte de fecha (DD/MM/YYYY) del campo fecha que tiene formato "DD/MM/YYYY HH:mm"
     const fechaPedido = p.fecha.split(' ')[0];
     const esDiaActual = fechaPedido === hoy;
+    const noArchivado = !p.archivado;
     
     // Aplicar filtro de repartidor si está activo
     if (filtroRepartidor && filtroRepartidor !== '') {
-      return esDiaActual && p.repartidor_id === filtroRepartidor;
+      return esDiaActual && noArchivado && p.repartidor_id === filtroRepartidor;
     }
     
-    return esDiaActual;
+    return esDiaActual && noArchivado;
   });
 
   // Calcular totales para Cierre de Jornada
@@ -685,6 +689,84 @@ const Orders = () => {
     }
   };
 
+  const cerrarTurno = async () => {
+    try {
+      setLoadingCierreTurno(true);
+      
+      // Filtrar solo pedidos pagados del día
+      const pedidosPagados = pedidosDelDia.filter(p => p.estadoPago === 'pagado');
+      
+      if (pedidosPagados.length === 0) {
+        toast.error('No hay pedidos pagados para cerrar el turno');
+        setLoadingCierreTurno(false);
+        return;
+      }
+      
+      // Calcular totales
+      const totalRecaudado = pedidosPagados.reduce((sum, p) => sum + p.total_a_recibir, 0);
+      const cantidadPedidos = pedidosPagados.length;
+      
+      // Calcular desglose por repartidor
+      const desglosePorRepartidor = {};
+      pedidosPagados.forEach(pedido => {
+        const repId = pedido.repartidor_id || 'sin_asignar';
+        const repNombre = pedido.repartidor_nombre || 'Sin Asignar';
+        
+        if (!desglosePorRepartidor[repId]) {
+          desglosePorRepartidor[repId] = {
+            nombre: repNombre,
+            cantidadPedidos: 0,
+            totalEntregado: 0
+          };
+        }
+        
+        desglosePorRepartidor[repId].cantidadPedidos++;
+        desglosePorRepartidor[repId].totalEntregado += pedido.total_a_recibir;
+      });
+      
+      // Preparar datos del cierre
+      const fechaHoy = new Date().toLocaleDateString('es-ES');
+      const horaActual = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      
+      const cierreData = {
+        fecha: fechaHoy,
+        hora: horaActual,
+        totalRecaudado,
+        cantidadPedidos,
+        desglosePorRepartidor: Object.values(desglosePorRepartidor)
+      };
+      
+      // Guardar cierre en Firebase
+      await guardarCierreDiario(cierreData);
+      
+      // Marcar pedidos pagados como archivados
+      const updatePromises = pedidosPagados.map(pedido => {
+        if (pedido.firestoreId) {
+          return updatePedido(pedido.firestoreId, { archivado: true });
+        }
+        return Promise.resolve();
+      });
+      
+      await Promise.all(updatePromises);
+      
+      // Actualizar estado local: filtrar pedidos archivados
+      setPedidos(prev => prev.map(p => {
+        const esPagadoHoy = pedidosPagados.find(pp => pp.id === p.id);
+        if (esPagadoHoy) {
+          return { ...p, archivado: true };
+        }
+        return p;
+      }));
+      
+      toast.success(`✅ Turno cerrado: $${totalRecaudado.toLocaleString('es-CO')} recaudados`);
+      setLoadingCierreTurno(false);
+    } catch (error) {
+      console.error('❌ Error al cerrar turno:', error);
+      toast.error('Error al cerrar el turno');
+      setLoadingCierreTurno(false);
+    }
+  };
+
   const descargarReporteDelDia = () => {
     try {
       // Crear CSV con los pedidos del día
@@ -743,6 +825,25 @@ const Orders = () => {
             <p className="text-sm text-gray-400">Total pedidos hoy</p>
             <p className="text-3xl font-bold text-primary">{pedidosDelDia.length}</p>
           </div>
+          {/* Botón Cerrar Turno */}
+          <button
+            onClick={cerrarTurno}
+            disabled={loadingCierreTurno}
+            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+            title="Cerrar Turno y Archivar Pedidos Pagados"
+          >
+            {loadingCierreTurno ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span className="hidden sm:inline">Cerrando...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-5 h-5" />
+                <span className="hidden sm:inline">Cerrar Turno</span>
+              </>
+            )}
+          </button>
           {/* Botón Descargar Reporte del Día */}
           <button
             onClick={descargarReporteDelDia}

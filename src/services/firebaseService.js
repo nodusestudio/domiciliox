@@ -20,6 +20,9 @@ import toast from 'react-hot-toast';
 // Cambiar a 'true' para usar localStorage, 'false' para Firebase
 const USE_LOCAL_STORAGE = false;
 
+// Colecciones de Firebase
+const cierresDiariosCollection = 'cierres_diarios';
+
 // ==================== SISTEMA DE CACHÉ SWR ====================
 // Caché en memoria para respuesta instantánea
 const cache = {
@@ -211,6 +214,7 @@ const setLocalData = (key, data) => {
 
 // ==================== PEDIDOS DOMICILIO ====================
 export const pedidosCollection = 'pedidos_domicilio';
+const cierresDiariosCollection = 'cierres_diarios';
 
 // Versión LOCAL
 const getPedidosLocal = () => {
@@ -1114,5 +1118,31 @@ export const getConfiguracionEmpresa = async () => {
   } catch (error) {
     console.warn('⚠️ No se pudo cargar configuración de empresa desde Firebase:', error);
     return { nombreEmpresa: 'AliadoX' };
+  }
+};
+
+// ==================== CIERRES DIARIOS ====================
+export const guardarCierreDiario = async (cierreData) => {
+  try {
+    const docRef = await addDoc(collection(db, cierresDiariosCollection), {
+      ...cierreData,
+      fechaCreacion: Timestamp.now()
+    });
+    console.log('✅ Cierre diario guardado con ID:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('❌ Error al guardar cierre diario:', error);
+    throw error;
+  }
+};
+
+export const updatePedido = async (pedidoId, updates) => {
+  try {
+    const pedidoRef = doc(db, pedidosCollection, pedidoId);
+    await updateDoc(pedidoRef, updates);
+    console.log('✅ Pedido actualizado:', pedidoId);
+  } catch (error) {
+    console.error('❌ Error al actualizar pedido:', error);
+    throw error;
   }
 };
