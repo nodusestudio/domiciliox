@@ -30,6 +30,7 @@ const Orders = () => {
   const [clienteSugerencias, setClienteSugerencias] = useState([]);
   const [showSugerencias, setShowSugerencias] = useState(false);
   const [showModalCliente, setShowModalCliente] = useState(false);
+  const [loadingCrearCliente, setLoadingCrearCliente] = useState(false);
   const [editingCell, setEditingCell] = useState({ id: null, field: null });
   const [editValue, setEditValue] = useState('');
   const [nuevoCliente, setNuevoCliente] = useState({
@@ -496,10 +497,11 @@ const Orders = () => {
    */
   const handleCreateCliente = async () => {
     if (!nuevoCliente.nombre || !nuevoCliente.direccion_habitual || !nuevoCliente.telefono) {
-      toast.error('Completa todos los campos');
+      toast.error('Completa todos los campos obligatorios');
       return;
     }
 
+    setLoadingCrearCliente(true);
     try {
       // Crear cliente usando el servicio
       const clienteCreado = await addCliente(nuevoCliente);
@@ -514,8 +516,11 @@ const Orders = () => {
       // Resetear formulario y cerrar modal
       setNuevoCliente({ nombre: '', direccion_habitual: '', telefono: '' });
       setShowModalCliente(false);
+      toast.success('Cliente creado exitosamente');
     } catch (error) {
       toast.error('No se pudo crear el cliente. Verifica los datos.');
+    } finally {
+      setLoadingCrearCliente(false);
     }
   };
 
@@ -1210,15 +1215,24 @@ const Orders = () => {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowModalCliente(false)}
-                  className="flex-1 px-4 py-2 bg-[#374151] text-white rounded-lg hover:bg-[#4b5563] transition-colors"
+                  disabled={loadingCrearCliente}
+                  className="flex-1 px-4 py-2 bg-[#374151] text-white rounded-lg hover:bg-[#4b5563] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleCreateCliente}
-                  className="flex-1 px-4 py-2 bg-[#206DDA] text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                  disabled={loadingCrearCliente || !nuevoCliente.nombre || !nuevoCliente.direccion_habitual || !nuevoCliente.telefono}
+                  className="flex-1 px-4 py-2 bg-[#206DDA] text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Guardar Cliente
+                  {loadingCrearCliente ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Cliente'
+                  )}
                 </button>
               </div>
             </div>

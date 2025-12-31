@@ -18,6 +18,7 @@ const Clients = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingGuardar, setLoadingGuardar] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -53,13 +54,21 @@ const Clients = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (!formData.nombre || !formData.direccion_habitual || !formData.telefono) {
+      toast.error('Completa todos los campos obligatorios');
+      return;
+    }
+
+    setLoadingGuardar(true);
     try {
       if (editingId) {
         // Actualizar cliente existente
         await updateCliente(editingId, formData);
+        toast.success('Cliente actualizado exitosamente');
       } else {
         // Agregar nuevo cliente
         await addCliente(formData);
+        toast.success('Cliente creado exitosamente');
       }
       
       setFormData({
@@ -75,6 +84,9 @@ const Clients = () => {
       await cargarClientes();
     } catch (error) {
       console.error('Error al guardar cliente:', error);
+      toast.error('No se pudo guardar el cliente');
+    } finally {
+      setLoadingGuardar(false);
     }
   };
 
@@ -565,15 +577,24 @@ const Clients = () => {
                     setEditingId(null);
                     setFormData({ nombre: '', direccion_habitual: '', telefono: '', email: '' });
                   }}
-                  className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium"
+                  disabled={loadingGuardar}
+                  className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-6 py-3 bg-primary hover:bg-[#1557b0] text-white rounded-lg transition-colors font-medium"
+                  disabled={loadingGuardar || !formData.nombre || !formData.direccion_habitual || !formData.telefono}
+                  className="flex-1 px-6 py-3 bg-primary hover:bg-[#1557b0] text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {editingId ? 'Actualizar' : 'Guardar Cliente'}
+                  {loadingGuardar ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    editingId ? 'Actualizar' : 'Guardar Cliente'
+                  )}
                 </button>
               </div>
             </form>
