@@ -18,10 +18,21 @@ const Orders = () => {
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
-  // Función para reproducir sonido de notificación
-  const reproducirNotificacion = () => {
+  // Función para reproducir sonido de nuevo pedido (campana)
+  const playSuccessSound = () => {
     try {
       const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
+    } catch (error) {
+      console.log('⚠️ No se pudo reproducir sonido');
+    }
+  };
+  
+  // Función para reproducir sonido de pago (caja registradora)
+  const playPaymentSound = () => {
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3');
       audio.volume = 0.5;
       audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
     } catch (error) {
@@ -211,8 +222,8 @@ const Orders = () => {
         [cliente.direccion_habitual]: parseFloat(costoEnvio)
       }));
       
-      // Reproducir sonido de notificación
-      reproducirNotificacion();
+      // Reproducir sonido de nuevo pedido
+      playSuccessSound();
       toast.success('Pedido agregado con éxito');
       setSearchTerm('');
     }, 100);
@@ -268,6 +279,10 @@ const Orders = () => {
         // Solo actualizar si el pedido ya existe en Firestore (tiene ID de Firestore)
         if (pedido.firestoreId) {
           await updatePedido(pedido.firestoreId, { estadoPago: nuevoEstado });
+        }
+        // Reproducir sonido de pago si se marca como pagado
+        if (nuevoEstado === 'pagado') {
+          playPaymentSound();
         }
         toast.success(`Estado actualizado a ${nuevoEstado}`);
       } catch (error) {
