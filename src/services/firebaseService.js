@@ -214,7 +214,6 @@ const setLocalData = (key, data) => {
 
 // ==================== PEDIDOS DOMICILIO ====================
 export const pedidosCollection = 'pedidos_domicilio';
-const cierresDiariosCollection = 'cierres_diarios';
 
 // Versión LOCAL
 const getPedidosLocal = () => {
@@ -338,17 +337,20 @@ const addPedidoFirebase = async (pedidoData) => {
       cliente: pedidoData.cliente || '',
       direccion: pedidoData.direccion || '',
       telefono: pedidoData.telefono || '',
-      productos_pedido: pedidoData.productos_pedido || [],
-      total: pedidoData.total || 0,
+      valor_pedido: pedidoData.valor_pedido || 0,
+      costo_envio: pedidoData.costo_envio || 0,
+      total_a_recibir: pedidoData.total_a_recibir || 0,
       metodo_pago: pedidoData.metodo_pago || 'Efectivo',
       repartidor_id: pedidoData.repartidor_id || null,
-      estado: pedidoData.estado || 'Recibido',
+      repartidor_nombre: pedidoData.repartidor_nombre || 'Sin Asignar',
+      estadoPago: pedidoData.estadoPago || 'pendiente',
+      entregado: pedidoData.entregado || false,
       fecha: ahora
     };
 
-    const docRef = await addDoc(collection(db, pedidosCollection), pedido);
+    const docRef = await addDoc(collection(db, 'pedidos'), pedido);
     invalidateCache('pedidos'); // Invalidar caché para refrescar datos
-    toast.success('Información guardada con éxito');
+    console.log('✅ Pedido guardado en Firebase con ID:', docRef.id);
     
     // Devolver con fecha como string para evitar error React #31
     return { 
@@ -356,17 +358,20 @@ const addPedidoFirebase = async (pedidoData) => {
       cliente: pedido.cliente,
       direccion: pedido.direccion,
       telefono: pedido.telefono,
-      productos_pedido: pedido.productos_pedido,
-      total: pedido.total,
+      valor_pedido: pedido.valor_pedido,
+      costo_envio: pedido.costo_envio,
+      total_a_recibir: pedido.total_a_recibir,
       metodo_pago: pedido.metodo_pago,
       repartidor_id: pedido.repartidor_id,
-      estado: pedido.estado,
+      repartidor_nombre: pedido.repartidor_nombre,
+      estadoPago: pedido.estadoPago,
+      entregado: pedido.entregado,
       fecha: ahora.toDate().toLocaleDateString('es-ES'),
       timestamp: ahora.toDate().toISOString()
     };
   }, 'addPedido').catch(error => {
-    console.error('Error al agregar pedido:', error);
-    toast.error('Error al guardar pedido. Verifica los permisos de Firebase.');
+    console.error('❌ Error al agregar pedido:', error);
+    // No mostrar toast aquí porque ya se maneja en Orders.jsx
     throw error;
   });
 };
@@ -1136,13 +1141,3 @@ export const guardarCierreDiario = async (cierreData) => {
   }
 };
 
-export const updatePedido = async (pedidoId, updates) => {
-  try {
-    const pedidoRef = doc(db, pedidosCollection, pedidoId);
-    await updateDoc(pedidoRef, updates);
-    console.log('✅ Pedido actualizado:', pedidoId);
-  } catch (error) {
-    console.error('❌ Error al actualizar pedido:', error);
-    throw error;
-  }
-};

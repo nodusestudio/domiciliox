@@ -10,7 +10,8 @@ import {
   sincronizarConNube,
   getRepartidores,
   guardarCierreDiario,
-  updatePedido
+  updatePedido,
+  addPedido
 } from '../services/firebaseService';
 
 const Orders = () => {
@@ -172,14 +173,14 @@ const Orders = () => {
    * - Fecha/hora automática elimina errores de captura manual
    * - Cálculo automático del total previene errores aritméticos
    */
-  const handleSelectCliente = (cliente) => {
+  const handleSelectCliente = async (cliente) => {
     const costoSugerido = historialCostos[cliente.direccion_habitual] || '';
     
     setSearchTerm(cliente.nombre);
     setShowSugerencias(false);
     
     // Mostrar prompt para valores
-    setTimeout(() => {
+    setTimeout(async () => {
       const valorPedido = prompt('Valor del Pedido:');
       if (!valorPedido) {
         setSearchTerm('');
@@ -217,7 +218,26 @@ const Orders = () => {
         timestamp: ahora.toISOString()
       };
 
-      setPedidos(prev => [nuevoPedido, ...prev]); // Agregar al inicio
+      // Agregar al estado local inmediatamente
+      setPedidos(prev => [nuevoPedido, ...prev]);
+      
+      // Guardar en Firebase
+      try {
+        const pedidoGuardado = await addPedido(nuevoPedido);
+        console.log('✅ Pedido guardado en Firebase:', pedidoGuardado);
+        
+        // Actualizar el pedido con el ID de Firebase si se recibe
+        if (pedidoGuardado && pedidoGuardado.id) {
+          setPedidos(prev => prev.map(p => 
+            p.id === nuevoPedido.id 
+              ? { ...p, firestoreId: pedidoGuardado.id }
+              : p
+          ));
+        }
+      } catch (error) {
+        console.error('❌ Error al guardar pedido en Firebase:', error);
+        toast.error('Pedido agregado localmente. Se sincronizará cuando haya conexión.');
+      }
       
       // Guardar en historial de costos usando el servicio
       guardarHistorialCosto(cliente.direccion_habitual, costoEnvio);
