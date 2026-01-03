@@ -397,10 +397,18 @@ const Orders = () => {
 
   // Pedidos del día actual (orden inverso: más reciente arriba) - excluir archivados
   const pedidosDelDia = pedidos.filter(p => {
-    const hoy = new Date().toLocaleDateString('es-ES');
+    if (!p.fecha) return false;
+    
+    const hoy = new Date();
+    const diaHoy = hoy.getDate();
+    const mesHoy = hoy.getMonth() + 1;
+    const añoHoy = hoy.getFullYear();
+    
     // Extraer solo la parte de fecha (DD/MM/YYYY) del campo fecha que tiene formato "DD/MM/YYYY HH:mm"
     const fechaPedido = p.fecha.split(' ')[0];
-    const esDiaActual = fechaPedido === hoy;
+    const [dia, mes, año] = fechaPedido.split('/').map(Number);
+    
+    const esDiaActual = dia === diaHoy && mes === mesHoy && año === añoHoy;
     const noArchivado = !p.archivado;
     
     // Aplicar filtro de repartidor si está activo
