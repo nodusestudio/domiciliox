@@ -11,7 +11,8 @@ import {
   getRepartidores,
   guardarCierreDiario,
   updatePedido,
-  addPedido
+  addPedido,
+  updateCliente
 } from '../services/firebaseService';
 
 const Orders = () => {
@@ -344,7 +345,7 @@ const Orders = () => {
     setEditValue(value || '');
   };
 
-  const handleCellBlur = () => {
+  const handleCellBlur = async () => {
     if (editingCell.id && editingCell.field) {
       const pedidoActualizado = pedidos.find(p => p.id === editingCell.id);
       if (pedidoActualizado) {
@@ -376,7 +377,49 @@ const Orders = () => {
         try {
           localStorage.setItem('pedidos', JSON.stringify(pedidosActualizados));
           setPedidos(pedidosActualizados);
-          toast.success('Pedido actualizado');
+          
+          // Si se editó información del cliente (teléfono, dirección o nombre), actualizar en Firebase
+          if (['telefono', 'direccion', 'cliente'].includes(editingCell.field)) {
+            const nombreCliente = editingCell.field === 'cliente' ? nuevoValor : pedidoActualizado.cliente;
+            
+            // Buscar el cliente en la lista
+            const clienteExistente = clientes.find(c => c.nombre === nombreCliente);
+            
+            if (clienteExistente) {
+              const datosActualizados = {};
+              
+              if (editingCell.field === 'telefono') {
+                datosActualizados.telefono = nuevoValor;
+              } else if (editingCell.field === 'direccion') {
+                datosActualizados.direccion_habitual = nuevoValor;
+              } else if (editingCell.field === 'cliente') {
+                datosActualizados.nombre = nuevoValor;
+              }
+              
+              try {
+                await updateCliente(clienteExistente.id, datosActualizados);
+                
+                // Actualizar la lista local de clientes
+                const clientesActualizados = clientes.map(c => 
+                  c.id === clienteExistente.id 
+                    ? { ...c, ...datosActualizados }
+                    : c
+                );
+                setClientes(clientesActualizados);
+                localStorage.setItem('clientes_cache', JSON.stringify(clientesActualizados));
+                
+                console.log('✅ Cliente actualizado en Firebase:', datosActualizados);
+                toast.success('Pedido y cliente actualizados');
+              } catch (error) {
+                console.error('❌ Error al actualizar cliente:', error);
+                toast.success('Pedido actualizado (cliente no sincronizado)');
+              }
+            } else {
+              toast.success('Pedido actualizado');
+            }
+          } else {
+            toast.success('Pedido actualizado');
+          }
         } catch (error) {
           toast.error('Error al guardar cambios. Int\u00e9ntalo nuevamente.');
         }
