@@ -1,3 +1,26 @@
+// Archivar pedidos en lote usando writeBatch
+export const batchArchivarPedidos = async (ids = []) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    alert('Error: No se proporcionaron IDs de pedidos para archivar.');
+    throw new Error('No se proporcionaron IDs de pedidos para archivar.');
+  }
+  try {
+    const batch = writeBatch(db);
+    ids.forEach(id => {
+      if (id) {
+        const ref = doc(db, pedidosCollection, id);
+        batch.update(ref, { archivado: true });
+      }
+    });
+    await batch.commit();
+    invalidateCache('pedidos');
+    toast.success('Pedidos archivados correctamente');
+  } catch (error) {
+    alert('Error al archivar pedidos en lote.');
+    console.error('Error en batchArchivarPedidos:', error);
+    throw error;
+  }
+};
 import { 
   collection, 
   addDoc, 
@@ -27,6 +50,7 @@ const cierresDiariosCollection = 'cierres_diarios';
 // Caché en memoria para respuesta instantánea
 const cache = {
   clientes: { data: null, timestamp: 0, loading: false },
+  import { onSnapshot } from 'firebase/firestore';
   pedidos: { data: null, timestamp: 0, loading: false },
   repartidores: { data: null, timestamp: 0, loading: false }
 };
@@ -45,6 +69,40 @@ const isCacheFresh = (cacheKey) => {
 };
 
 /**
+  // Escuchar pedidos en tiempo real (sin caché, solo para UI)
+  export const listenPedidosRealtime = (callback) => {
+    try {
+      const pedidosRef = query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30));
+      return onSnapshot(pedidosRef, (snapshot) => {
+        const pedidos = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: String(doc.id || ''),
+            cliente: String(data.cliente || ''),
+            direccion: String(data.direccion || ''),
+            telefono: String(data.telefono || ''),
+            productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
+            valor_pedido: Number(data.valor_pedido) || 0,
+            costo_envio: Number(data.costo_envio) || 0,
+            total_a_recibir: Number(data.total_a_recibir) || 0,
+            metodo_pago: String(data.metodo_pago || 'Efectivo'),
+            repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
+            repartidor_nombre: data.repartidor_nombre || 'Sin Asignar',
+            estadoPago: String(data.estadoPago || 'pendiente'),
+            entregado: Boolean(data.entregado),
+            estado: String(data.estado || 'Recibido'),
+            fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+            timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
+            archivado: Boolean(data.archivado)
+          };
+        });
+        callback(pedidos);
+      });
+    } catch (error) {
+      console.error('Error al escuchar pedidos en tiempo real:', error);
+      callback([]);
+    }
+  };
  * Verifica si la caché está obsoleta pero usable
  */
 const isCacheStale = (cacheKey) => {
@@ -393,11 +451,22 @@ const updatePedidoLocal = (id, pedidoData) => {
 };
 
 // Versión FIREBASE optimizada con reintentos
+
 const updatePedidoFirebase = async (id, pedidoData) => {
+  if (!id) {
+    const msg = 'Error: El ID del pedido es nulo o inválido.';
+    alert(msg);
+    throw new Error(msg);
+  }
   return ejecutarConReintentos(async () => {
-    await updateDoc(doc(db, pedidosCollection, id), pedidoData);
-    invalidateCache('pedidos');
-    toast.success('Información guardada con éxito');
+    try {
+      await updateDoc(doc(db, pedidosCollection, id), pedidoData);
+      invalidateCache('pedidos');
+      toast.success('Información guardada con éxito');
+    } catch (error) {
+      alert('Error al actualizar el pedido. Verifica la ruta y el ID.');
+      throw error;
+    }
   }, 'updatePedido').catch(error => {
     console.error('Error al actualizar pedido:', error);
     toast.error('Error al actualizar pedido. Verifica los permisos.');
