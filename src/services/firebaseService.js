@@ -78,6 +78,7 @@ const isCacheFresh = (cacheKey) => {
           const data = doc.data();
           return {
             id: String(doc.id || ''),
+            firestoreId: String(doc.id || ''),
             cliente: String(data.cliente || ''),
             direccion: String(data.direccion || ''),
             telefono: String(data.telefono || ''),

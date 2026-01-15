@@ -229,21 +229,20 @@ const Orders = () => {
         timestamp: ahora.toISOString()
       };
 
-      // Agregar al estado local inmediatamente
-      setPedidos(prev => [nuevoPedido, ...prev]);
-      
+      // Agregar al estado local inmediatamente con un id temporal
+      const tempId = `tmp_${Date.now()}`;
+      setPedidos(prev => [{ ...nuevoPedido, id: tempId, firestoreId: null }, ...prev]);
+
       // Guardar en Firebase
       try {
         const pedidoGuardado = await addPedido(nuevoPedido);
         console.log('✅ Pedido guardado en Firebase:', pedidoGuardado);
-        
-        // Actualizar el pedido con el ID de Firebase si se recibe
+        // Reemplazar el pedido temporal por el real con firestoreId
         if (pedidoGuardado && pedidoGuardado.id) {
-          setPedidos(prev => prev.map(p => 
-            p.id === nuevoPedido.id 
-              ? { ...p, firestoreId: pedidoGuardado.id }
-              : p
-          ));
+          setPedidos(prev => [
+            { ...pedidoGuardado, id: pedidoGuardado.id, firestoreId: pedidoGuardado.id },
+            ...prev.filter(p => p.id !== tempId)
+          ]);
         }
       } catch (error) {
         console.error('❌ Error al guardar pedido en Firebase:', error);
