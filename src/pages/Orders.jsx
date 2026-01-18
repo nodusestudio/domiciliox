@@ -1,3 +1,4 @@
+                  
 import React, { useState, useEffect } from 'react';
 import { Search, Check, Save, UserPlus, X, Cloud, Trash2, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -24,6 +25,11 @@ const Orders = () => {
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
   
+  // --- MÉTRICAS SUPERIORES ---
+  // Totales calculados automáticamente
+  const totalPedidos = pedidosDelDia ? pedidosDelDia.length : 0;
+  const totalCostosEnvio = pedidosDelDia ? pedidosDelDia.reduce((sum, p) => sum + (p.costo_envio || 0), 0) : 0;
+  const totalVentasPesos = pedidosDelDia ? pedidosDelDia.reduce((sum, p) => sum + (p.valor_pedido || 0), 0) : 0;
   // Función para reproducir sonido de nuevo pedido (campana)
   const playSuccessSound = () => {
     try {
@@ -896,60 +902,72 @@ const Orders = () => {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold text-white mb-2">Despacho Rápido</h2>
           <p className="text-gray-400">Gestión de pedidos del día</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <p className="text-sm text-gray-400">Total pedidos hoy</p>
-            <p className="text-3xl font-bold text-primary">{pedidosDelDia.length}</p>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-end sm:items-center">
+          {/* Métricas superiores */}
+          <div className="flex gap-4">
+            <div className="text-center">
+              <p className="text-sm text-gray-400">Total Pedidos</p>
+              <p className="text-2xl font-bold text-primary">{totalPedidos}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-gray-400">Total Costos de Envío</p>
+              <p className="text-2xl font-bold text-warning">${totalCostosEnvio.toLocaleString()}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-gray-400">Total Ventas Pesos</p>
+              <p className="text-2xl font-bold text-success">${totalVentasPesos.toLocaleString()}</p>
+            </div>
           </div>
-          {/* Botón Cerrar Turno */}
-          <button
-            onClick={cerrarTurno}
-            disabled={loadingCierreTurno}
-            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors font-medium"
-            title="Cerrar Turno y Archivar Pedidos Pagados"
-          >
-            {loadingCierreTurno ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span className="hidden sm:inline">Cerrando...</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-5 h-5" />
-                <span className="hidden sm:inline">Cerrar Turno</span>
-              </>
-            )}
-          </button>
-          {/* Botón Descargar Reporte del Día */}
-          <button
-            onClick={descargarReporteDelDia}
-            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
-            title="Descargar Reporte del Día en CSV"
-          >
-            <Download className="w-5 h-5" />
-            <span className="hidden sm:inline">Reporte del Día</span>
-          </button>
-          {/* Botón oculto de sincronización */}
-          <button
-            onClick={handleSincronizacion}
-            className="hidden items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
-            title="Sincronizar con la Nube"
-          >
-            <Cloud className="w-5 h-5" />
-            Sincronizar
-          </button>
+          {/* Botones de acciones */}
+          <div className="flex gap-2 mt-2 sm:mt-0">
+            <button
+              onClick={cerrarTurno}
+              disabled={loadingCierreTurno}
+              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+              title="Cerrar Turno y Archivar Pedidos Pagados"
+            >
+              {loadingCierreTurno ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="hidden sm:inline">Cerrando...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-5 h-5" />
+                  <span className="hidden sm:inline">Cerrar Turno</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={descargarReporteDelDia}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+              title="Descargar Reporte del Día en CSV"
+            >
+              <Download className="w-5 h-5" />
+              <span className="hidden sm:inline">Reporte del Día</span>
+            </button>
+            <button
+              onClick={handleSincronizacion}
+              className="hidden items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+              title="Sincronizar con la Nube"
+            >
+              <Cloud className="w-5 h-5" />
+              Sincronizar
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Filtro de Repartidor */}
-      <div className="bg-dark-card border border-dark-border rounded-lg p-6">
+
+      {/* ...existing code... */}
+      {/* Filtro de Repartidor (ahora al final, antes del desglose) */}
+      <div className="bg-dark-card border border-dark-border rounded-lg p-6 mt-8">
         <label className="block text-sm font-medium text-white mb-3">
           🚩 Filtrar por Repartidor
         </label>
@@ -1173,112 +1191,147 @@ const Orders = () => {
                     </td>
                     
 
-                    {/* Tabla de Pedidos - Ultra compacta en móvil */}
-                    <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
-                      {/* Desktop Table */}
-                      <div className="hidden sm:block overflow-x-auto">
-                        <table className="w-full">
-                          {/* ...existing code for thead and tbody (igual que antes)... */}
-                          {/* (No se modifica la tabla desktop) */}
-                        </table>
-                      </div>
-                      {/* Mobile Cards */}
-                      <div className="sm:hidden divide-y divide-dark-border">
-                        {pedidosDelDia.length === 0 ? (
-                          <div className="px-4 py-10 text-center">
-                            <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
-                            <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
-                          </div>
-                        ) : (
-                          pedidosDelDia.map((pedido, index) => (
-                            <div key={pedido.id} className="flex items-center justify-between px-2 py-2 gap-2">
-                              {/* Info clave en una sola fila */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-bold text-primary">#{pedidosDelDia.length - index}</span>
-                                  <span className="truncate font-semibold text-white text-sm max-w-[90px]">{pedido.cliente}</span>
-                                  <span className="text-xs text-gray-400">{pedido.fecha}</span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-xs text-success font-bold">${pedido.total_a_recibir.toLocaleString()}</span>
-                                  <span className={`text-xs font-semibold ${pedido.estadoPago === 'pagado' ? 'text-success' : 'text-warning'}`}>{pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente'}</span>
-                                  <span className="text-xs text-gray-400 truncate max-w-[60px]">{pedido.repartidor_nombre || 'Sin Rep.'}</span>
-                                </div>
-                              </div>
-                              {/* Acciones compactas */}
-                              <div className="flex flex-col gap-1 items-end">
-                                <button
-                                  onClick={() => toggleEstadoPago(pedido.id)}
-                                  className={`px-2 py-1 rounded text-xs font-bold ${pedido.estadoPago === 'pagado' ? 'bg-success text-white' : 'bg-warning text-white'}`}
-                                  title="Marcar como pagado"
-                                >
-                                  {pedido.estadoPago === 'pagado' ? '✓' : '$'}
-                                </button>
-                                <button
-                                  onClick={() => toggleEntregado(pedido.id)}
-                                  className={`px-2 py-1 rounded text-xs font-bold ${pedido.entregado ? 'bg-success text-white' : 'bg-dark-border text-gray-400'}`}
-                                  title="Entregado"
-                                >
-                                  <Check className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleEliminarPedido(pedido.id)}
-                                  className="px-2 py-1 rounded text-xs font-bold bg-red-500/20 text-red-500 hover:bg-red-500/30"
-                                  title="Eliminar"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                      pedidos: 0,
-                      valorPedidos: 0,
-                      costos: 0,
-                      total: 0
-                    };
-                  }
-                  pedidosPorRepartidor[key].pedidos++;
-                  pedidosPorRepartidor[key].valorPedidos += pedido.valor_pedido;
-                  pedidosPorRepartidor[key].costos += pedido.costo_envio;
-                  pedidosPorRepartidor[key].total += pedido.total_a_recibir;
-                });
-
-                return Object.values(pedidosPorRepartidor).map((rep, idx) => (
-                  <div key={idx} className="bg-dark-bg border border-dark-border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold text-white text-lg">{rep.nombre}</span>
-                      <span className="text-sm text-gray-400">{rep.pedidos} pedido(s)</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <span className="text-gray-400">Pedidos: </span>
-                        <span className="text-white font-medium">${rep.valorPedidos.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Costos: </span>
-                        <span className="text-warning font-medium">${rep.costos.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Total: </span>
-                        <span className="text-success font-bold">${rep.total.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
-          </div>
-
-          <div className="mt-4 p-3 bg-primary/10 border border-primary/30 rounded-lg">
-            <p className="text-sm text-primary">
-              � "Cerrar Jornada" guarda todos los pedidos en Firestore, genera reportes y limpia la pantalla ({pedidosDelDia.length} pedidos).
-            </p>
-          </div>
+                    {/* Repartidor */}
+                    <td className="px-4 py-4 text-center">
+                      {pedido.repartidor_nombre || 'Sin Rep.'}
+                    </td>
+                    {/* Pago */}
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        onClick={() => toggleEstadoPago(pedido.id)}
+                        className={`px-2 py-1 rounded text-xs font-bold ${pedido.estadoPago === 'pagado' ? 'bg-success text-white' : 'bg-warning text-white'}`}
+                        title="Marcar como pagado"
+                      >
+                        {pedido.estadoPago === 'pagado' ? '✓' : '$'}
+                      </button>
+                    </td>
+                    {/* Estado Pago */}
+                    <td className="px-4 py-4 text-center">
+                      <span className={`font-semibold text-xs ${pedido.estadoPago === 'pagado' ? 'text-success' : 'text-warning'}`}>{pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente'}</span>
+                    </td>
+                    {/* Entregado */}
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        onClick={() => toggleEntregado(pedido.id)}
+                        className={`px-2 py-1 rounded text-xs font-bold ${pedido.entregado ? 'bg-success text-white' : 'bg-dark-border text-gray-400'}`}
+                        title="Entregado"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                    </td>
+                    {/* Acciones */}
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        onClick={() => handleEliminarPedido(pedido.id)}
+                        className="px-2 py-1 rounded text-xs font-bold bg-red-500/20 text-red-500 hover:bg-red-500/30"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
+
+      {/* Resumen por repartidor */}
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        {(() => {
+          const pedidosPorRepartidor = {};
+          pedidosDelDia.forEach((pedido) => {
+            const key = pedido.repartidor_nombre || 'Sin Repartidor';
+            if (!pedidosPorRepartidor[key]) {
+              pedidosPorRepartidor[key] = {
+                nombre: key,
+                pedidos: 0,
+                valorPedidos: 0,
+                costos: 0,
+                total: 0
+              };
+            }
+            pedidosPorRepartidor[key].pedidos++;
+            pedidosPorRepartidor[key].valorPedidos += pedido.valor_pedido;
+            pedidosPorRepartidor[key].costos += pedido.costo_envio;
+            pedidosPorRepartidor[key].total += pedido.total_a_recibir;
+          });
+          return Object.values(pedidosPorRepartidor).map((rep, idx) => (
+            <div key={idx} className="bg-dark-bg border border-dark-border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-white text-lg">{rep.nombre}</span>
+                <span className="text-sm text-gray-400">{rep.pedidos} pedido(s)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <span className="text-gray-400">Pedidos: </span>
+                  <span className="text-white font-medium">${rep.valorPedidos.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Costos: </span>
+                  <span className="text-warning font-medium">${rep.costos.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Total: </span>
+                  <span className="text-success font-bold">${rep.total.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          ));
+        })()}
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="sm:hidden divide-y divide-dark-border mt-6">
+        {pedidosDelDia.length === 0 ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
+            <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
+          </div>
+        ) : (
+          pedidosDelDia.map((pedido, index) => (
+            <div key={pedido.id} className="flex items-center justify-between px-2 py-2 gap-2">
+              {/* Info clave en una sola fila */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-primary">#{pedidosDelDia.length - index}</span>
+                  <span className="truncate font-semibold text-white text-sm max-w-[90px]">{pedido.cliente}</span>
+                  <span className="text-xs text-gray-400">{pedido.fecha}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-success font-bold">${pedido.total_a_recibir.toLocaleString()}</span>
+                  <span className={`text-xs font-semibold ${pedido.estadoPago === 'pagado' ? 'text-success' : 'text-warning'}`}>{pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente'}</span>
+                  <span className="text-xs text-gray-400 truncate max-w-[60px]">{pedido.repartidor_nombre || 'Sin Rep.'}</span>
+                </div>
+              </div>
+              {/* Acciones compactas */}
+              <div className="flex flex-col gap-1 items-end">
+                <button
+                  onClick={() => toggleEstadoPago(pedido.id)}
+                  className={`px-2 py-1 rounded text-xs font-bold ${pedido.estadoPago === 'pagado' ? 'bg-success text-white' : 'bg-warning text-white'}`}
+                  title="Marcar como pagado"
+                >
+                  {pedido.estadoPago === 'pagado' ? '✓' : '$'}
+                </button>
+                <button
+                  onClick={() => toggleEntregado(pedido.id)}
+                  className={`px-2 py-1 rounded text-xs font-bold ${pedido.entregado ? 'bg-success text-white' : 'bg-dark-border text-gray-400'}`}
+                  title="Entregado"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleEliminarPedido(pedido.id)}
+                  className="px-2 py-1 rounded text-xs font-bold bg-red-500/20 text-red-500 hover:bg-red-500/30"
+                  title="Eliminar"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
 
       {/* Modal Nuevo Cliente */}
       {showModalCliente && (
