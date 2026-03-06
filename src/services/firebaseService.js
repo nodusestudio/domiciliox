@@ -567,64 +567,106 @@ export const updatePedido = USE_LOCAL_STORAGE ? updatePedidoLocal : updatePedido
 // Versión LOCAL
 const deletePedidoLocal = (id) => {
   const pedidos = getPedidosLocalData();
-  const filtrados = pedidos.filter(p => p.id !== id);
+  const idTexto = String(id || '');
+  const filtrados = pedidos.filter(p => {
+    const pid = String(p.id || '');
+    const fid = String(p.firestoreId || '');
+    return pid !== idTexto && fid !== idTexto;
+  });
   setPedidosLocalData(filtrados);
+  setLocalData('pedidos_domicilio_cache', filtrados);
   toast.success('Información guardada con éxito');
 };
 
 // Versión FIREBASE optimizada con reintentos
 const deletePedidoFirebase = async (id, pedidoData = null) => {
   return ejecutarConReintentos(async () => {
-    let pedidoRef = await getPedidoDocRefConFallback(id);
-    let snap = await getDoc(pedidoRef);
+    const refsToDelete = [];
+    const refsSeen = new Set();
 
-    // Si el ID no existe (caso de IDs locales antiguos), intentar resolver por datos del pedido.
-    if (!snap.exists() && pedidoData && pedidoData.cliente) {
-      const candidatosSnap = await getDocs(
-        query(
-          collection(db, pedidosCollection),
-          where('cliente', '==', String(pedidoData.cliente || '')),
-          orderBy('fecha', 'desc'),
-          limit(20)
-        )
-      );
+    const addRef = (ref) => {
+      if (!ref) return;
+      const key = `${ref.path}`;
+      if (refsSeen.has(key)) return;
+      refsSeen.add(key);
+      refsToDelete.push(ref);
+    };
 
-      const candidatos = candidatosSnap.docs;
-      if (candidatos.length > 0) {
-        const normalizar = (v) => String(v || '').trim().toLowerCase();
-        const dirObjetivo = normalizar(pedidoData.direccion);
-        const telObjetivo = normalizar(pedidoData.telefono);
-        const valorObjetivo = Number(pedidoData.valor_pedido) || 0;
-        const costoObjetivo = Number(pedidoData.costo_envio) || 0;
+    const primaryById = doc(db, pedidosCollection, id);
+    const primaryByIdSnap = await getDoc(primaryById);
+    if (primaryByIdSnap.exists()) addRef(primaryById);
 
-        const matchFuerte = candidatos.find(docSnap => {
+    const legacyById = doc(db, legacyPedidosCollection, id);
+    const legacyByIdSnap = await getDoc(legacyById);
+    if (legacyByIdSnap.exists()) addRef(legacyById);
+
+    // Resolver por huella del pedido para borrar cualquier duplicado en ambas colecciones.
+    if (pedidoData && pedidoData.cliente) {
+      const normalizar = (v) => String(v || '').trim().toLowerCase();
+      const dirObjetivo = normalizar(pedidoData.direccion);
+      const telObjetivo = normalizar(pedidoData.telefono);
+      const valorObjetivo = Number(pedidoData.valor_pedido) || 0;
+      const costoObjetivo = Number(pedidoData.costo_envio) || 0;
+
+      const buscarYAgregarCoincidencias = async (collectionName) => {
+        const candidatosSnap = await getDocs(
+          query(
+            collection(db, collectionName),
+            where('cliente', '==', String(pedidoData.cliente || '')),
+            orderBy('fecha', 'desc'),
+            limit(30)
+          )
+        );
+
+        candidatosSnap.docs.forEach((docSnap) => {
           const d = docSnap.data() || {};
-          return (
-            normalizar(d.direccion) === dirObjetivo &&
+          const matchFuerte =
+            normalizar(d.direccion || d.direccion_habitual || d.domicilio) === dirObjetivo &&
             normalizar(d.telefono) === telObjetivo &&
             (Number(d.valor_pedido) || 0) === valorObjetivo &&
-            (Number(d.costo_envio) || 0) === costoObjetivo
-          );
-        });
+            (Number(d.costo_envio) || 0) === costoObjetivo;
 
-        const matchBasico = candidatos.find(docSnap => {
-          const d = docSnap.data() || {};
-          return normalizar(d.direccion) === dirObjetivo;
-        });
+          const matchBasico =
+            normalizar(d.direccion || d.direccion_habitual || d.domicilio) === dirObjetivo &&
+            normalizar(d.telefono) === telObjetivo;
 
-        const elegido = matchFuerte || matchBasico || candidatos[0];
-        if (elegido) {
-          pedidoRef = doc(db, pedidosCollection, elegido.id);
-          snap = await getDoc(pedidoRef);
-        }
-      }
+          if (matchFuerte || matchBasico) {
+            addRef(doc(db, collectionName, docSnap.id));
+          }
+        });
+      };
+
+      await buscarYAgregarCoincidencias(pedidosCollection);
+      await buscarYAgregarCoincidencias(legacyPedidosCollection);
     }
 
-    if (!snap.exists()) {
+    if (refsToDelete.length === 0) {
       throw new Error(`Pedido no encontrado para eliminar (id: ${id})`);
     }
 
-    await deleteDoc(pedidoRef);
+    for (const ref of refsToDelete) {
+      await deleteDoc(ref);
+    }
+
+    // Limpiar cachés locales para evitar rehidratación de pedidos eliminados.
+    const pedidosLocales = getPedidosLocalData();
+    const idTexto = String(id || '');
+    const filtrados = pedidosLocales.filter((p) => {
+      const pid = String(p.id || '');
+      const fid = String(p.firestoreId || '');
+      const mismoId = pid === idTexto || fid === idTexto;
+      if (mismoId) return false;
+      if (!pedidoData) return true;
+      const mismoCliente = String(p.cliente || '') === String(pedidoData.cliente || '');
+      const mismaDir = String(p.direccion || '') === String(pedidoData.direccion || '');
+      const mismoTel = String(p.telefono || '') === String(pedidoData.telefono || '');
+      const mismoValor = (Number(p.valor_pedido) || 0) === (Number(pedidoData.valor_pedido) || 0);
+      const mismoCosto = (Number(p.costo_envio) || 0) === (Number(pedidoData.costo_envio) || 0);
+      return !(mismoCliente && mismaDir && mismaTel && mismoValor && mismoCosto);
+    });
+    setPedidosLocalData(filtrados);
+    setLocalData('pedidos_domicilio_cache', filtrados);
+
     invalidateCache('pedidos');
     toast.success('Información guardada con éxito');
   }, 'deletePedido').catch(error => {

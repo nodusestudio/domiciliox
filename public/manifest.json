@@ -8,7 +8,14 @@
   "theme_color": "#1e40af",
   "orientation": "portrait-primary",
   "scope": "/",
-  "icons": [],
+  "icons": [
+    {
+      "src": "/logo-domiciliox.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
   "screenshots": [],
   "categories": ["business", "productivity", "food"],
   "shortcuts": [
@@ -19,8 +26,9 @@
       "url": "/orders",
       "icons": [
         {
-          "src": "/icon-192.png",
-          "sizes": "192x192"
+          "src": "/logo-domiciliox.png",
+          "sizes": "any",
+          "type": "image/png"
         }
       ]
     },
@@ -31,8 +39,9 @@
       "url": "/clients",
       "icons": [
         {
-          "src": "/icon-192.png",
-          "sizes": "192x192"
+          "src": "/logo-domiciliox.png",
+          "sizes": "any",
+          "type": "image/png"
         }
       ]
     }

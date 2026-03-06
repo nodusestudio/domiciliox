@@ -1,5 +1,5 @@
                   
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Check, Save, UserPlus, X, Cloud, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -75,6 +75,13 @@ const Orders = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [clienteSugerencias, setClienteSugerencias] = useState([]);
   const [showSugerencias, setShowSugerencias] = useState(false);
+  const [showModalPedido, setShowModalPedido] = useState(false);
+  const [loadingCrearPedido, setLoadingCrearPedido] = useState(false);
+  const [clienteSeleccionadoPedido, setClienteSeleccionadoPedido] = useState(null);
+  const [nuevoPedidoForm, setNuevoPedidoForm] = useState({
+    valor_pedido: '',
+    costo_envio: ''
+  });
   const [showModalCliente, setShowModalCliente] = useState(false);
   const [loadingCrearCliente, setLoadingCrearCliente] = useState(false);
   const [editingCell, setEditingCell] = useState({ id: null, field: null });
@@ -84,6 +91,8 @@ const Orders = () => {
     direccion_habitual: '',
     telefono: ''
   });
+  const valorPedidoInputRef = useRef(null);
+  const costoEnvioInputRef = useRef(null);
 
   const deduplicarPedidos = (items = []) => {
     const vistos = new Set();
@@ -92,30 +101,6 @@ const Orders = () => {
       if (vistos.has(clave)) return false;
       vistos.add(clave);
       return true;
-    });
-  };
-
-  const getDeletedPedidosIds = () => {
-    try {
-      const raw = localStorage.getItem('pedidos_deleted_ids');
-      const parsed = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
-    } catch {
-      return new Set();
-    }
-  };
-
-  const saveDeletedPedidosIds = (idsSet) => {
-    localStorage.setItem('pedidos_deleted_ids', JSON.stringify(Array.from(idsSet)));
-  };
-
-  const filtrarPedidosEliminados = (items = []) => {
-    const deletedIds = getDeletedPedidosIds();
-    if (deletedIds.size === 0) return items;
-    return items.filter((p) => {
-      const idPrincipal = String(p.firestoreId || p.id || '');
-      const idSecundario = String(p.id || '');
-      return !deletedIds.has(idPrincipal) && !deletedIds.has(idSecundario);
     });
   };
 
@@ -160,6 +145,35 @@ const Orders = () => {
     return `${String(h).padStart(2, '0')}:${min} ${suffix}`;
   };
 
+  const normalizarTextoBusqueda = (texto = '') => {
+    return String(texto || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const normalizarTelefonoBusqueda = (texto = '') => String(texto || '').replace(/\D/g, '');
+
+  const parseValorNumerico = (valor) => {
+    if (valor === null || typeof valor === 'undefined') return NaN;
+    let texto = String(valor).trim();
+    if (!texto) return NaN;
+
+    // Permite formatos como 12.000,50 o 12000.50
+    if (texto.includes(',') && texto.includes('.')) {
+      texto = texto.replace(/\./g, '').replace(',', '.');
+    } else if (texto.includes(',')) {
+      texto = texto.replace(',', '.');
+    }
+
+    texto = texto.replace(/[^0-9.-]/g, '');
+    const numero = Number(texto);
+    return Number.isFinite(numero) ? numero : NaN;
+  };
+
 
   // Sincronización en tiempo real de pedidos
   useEffect(() => {
@@ -167,8 +181,7 @@ const Orders = () => {
     // Suscribirse a cambios en pedidos
     const unsubscribe = listenPedidosRealtime((pedidosRealtime) => {
       setPedidos((prev) => {
-        const filtrados = filtrarPedidosEliminados(pedidosRealtime);
-        const mergeados = mergePedidosPreservandoHoras(prev, filtrados);
+        const mergeados = mergePedidosPreservandoHoras(prev, pedidosRealtime);
         return deduplicarPedidos(mergeados);
       });
     });
@@ -225,21 +238,9 @@ const Orders = () => {
     localStorage.setItem('clientes_cache', JSON.stringify(clientesCargados || []));
     localStorage.setItem('repartidores_cache', JSON.stringify(repartidoresCargados || []));
     
-    // Cargar pedidos del día que estaban en proceso
-    const pedidosGuardados = localStorage.getItem('pedidos');
-    if (pedidosGuardados) {
-      const pedidosParseados = JSON.parse(pedidosGuardados);
-      // Normalizar pedidos antiguos para soportar estado "sin asignar"
-      const pedidosActualizados = pedidosParseados.map(p => ({
-        ...p,
-        metodo_pago: p.metodo_pago || '',
-        estadoPago: p.estadoPago || '',
-        entregado: typeof p.entregado === 'boolean' ? p.entregado : null
-      }));
-      const pedidosFiltrados = filtrarPedidosEliminados(pedidosActualizados);
-      setPedidos(pedidosFiltrados);
-      localStorage.setItem('pedidos_domicilio', JSON.stringify(pedidosFiltrados));
-    }
+    // No hidratar pedidos desde localStorage al abrir para evitar que reaparezcan pedidos viejos.
+    // La fuente de verdad inicial es Firebase realtime (listenPedidosRealtime).
+    setPedidos([]);
     setDatosInicialesCargados(true);
   };
 
@@ -289,11 +290,29 @@ const Orders = () => {
     setSearchTerm(value);
     
     if (value.length > 0) {
-      const valorBusqueda = value.toLowerCase();
-      const sugerencias = clientes.filter(c => 
-        c.nombre.toLowerCase().includes(valorBusqueda) ||
-        c.telefono.toLowerCase().includes(valorBusqueda)
-      );
+      const queryText = normalizarTextoBusqueda(value);
+      const queryPhone = normalizarTelefonoBusqueda(value);
+
+      const sugerencias = (clientes || [])
+        .map((c) => {
+          const nombre = normalizarTextoBusqueda(c.nombre);
+          const telefono = normalizarTelefonoBusqueda(c.telefono);
+          const direccion = normalizarTextoBusqueda(c.direccion_habitual || c.direccion || c.domicilio || '');
+
+          let score = 0;
+          if (queryText && nombre.startsWith(queryText)) score += 120;
+          if (queryText && nombre.includes(queryText)) score += 80;
+          if (queryText && direccion.includes(queryText)) score += 35;
+          if (queryPhone && telefono.startsWith(queryPhone)) score += 110;
+          if (queryPhone && telefono.includes(queryPhone)) score += 60;
+
+          return { cliente: c, score };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 12)
+        .map((item) => item.cliente);
+
       setClienteSugerencias(sugerencias);
       setShowSugerencias(true);
     } else {
@@ -329,83 +348,119 @@ const Orders = () => {
     
     setSearchTerm(cliente.nombre);
     setShowSugerencias(false);
-    
-    // Mostrar prompt para valores
-    setTimeout(async () => {
-      const valorPedido = prompt('Valor del Pedido:');
-      if (!valorPedido) {
-        setSearchTerm('');
-        return;
-      }
-      
-      // Usar el costo sugerido como valor predeterminado
-      const costoSugeridoTexto = costoSugerido ? costoSugerido.toString() : '';
-      let costoEnvio = prompt('Costo de Envío:', costoSugeridoTexto);
-      if (costoEnvio === null) {
-        setSearchTerm('');
-        return;
-      }
-      if (!costoEnvio) costoEnvio = costoSugerido || '0';
-      
-      // Fecha y hora automática
-      const ahora = new Date();
-      const fechaFormato = `${ahora.getDate().toString().padStart(2, '0')}/${(ahora.getMonth() + 1).toString().padStart(2, '0')}/${ahora.getFullYear()} ${ahora.getHours().toString().padStart(2, '0')}:${ahora.getMinutes().toString().padStart(2, '0')}`;
-      
-      const nuevoPedido = {
-        id: Date.now(),
-        cliente: cliente.nombre,
-        direccion: direccionCliente,
-        telefono: cliente.telefono,
-        valor_pedido: parseFloat(valorPedido),
-        costo_envio: parseFloat(costoEnvio),
-        total_a_recibir: parseFloat(valorPedido) - parseFloat(costoEnvio),
-        metodo_pago: '',
-        repartidor_id: null,
-        repartidor_nombre: 'Sin Asignar',
-        estadoPago: '',
-        entregado: null,
-        fecha: fechaFormato,
-        hora: getHoraAmPmActual(),
-        timestamp: ahora.toISOString()
-      };
 
-      // Agregar al estado local inmediatamente con un id temporal
-      const tempId = `tmp_${Date.now()}`;
-      setPedidos(prev => [{ ...nuevoPedido, id: tempId, firestoreId: null }, ...prev]);
+    setClienteSeleccionadoPedido(cliente);
+    setNuevoPedidoForm({
+      valor_pedido: '',
+      costo_envio: costoSugerido ? String(costoSugerido) : ''
+    });
+    setShowModalPedido(true);
+  };
 
-      // Guardar en Firebase
-      try {
-        const pedidoGuardado = await addPedido(nuevoPedido);
-        console.log('✅ Pedido guardado en Firebase:', pedidoGuardado);
-        // Reemplazar el pedido temporal por el real con firestoreId
-        if (pedidoGuardado && pedidoGuardado.id) {
-          setPedidos(prev => {
-            const sinTemporal = prev.filter(p => p.id !== tempId);
-            const yaExiste = sinTemporal.some(p => String(p.firestoreId || p.id) === String(pedidoGuardado.id));
-            if (yaExiste) return deduplicarPedidos(sinTemporal);
-            return deduplicarPedidos([
-              { ...pedidoGuardado, id: pedidoGuardado.id, firestoreId: pedidoGuardado.id },
-              ...sinTemporal
-            ]);
-          });
-        }
-      } catch (error) {
-        console.error('❌ Error al guardar pedido en Firebase:', error);
-        toast.error('Pedido agregado localmente. Se sincronizará cuando haya conexión.');
+  const cerrarModalPedido = () => {
+    setShowModalPedido(false);
+    setLoadingCrearPedido(false);
+    setClienteSeleccionadoPedido(null);
+    setNuevoPedidoForm({ valor_pedido: '', costo_envio: '' });
+    setSearchTerm('');
+  };
+
+  useEffect(() => {
+    if (showModalPedido && valorPedidoInputRef.current) {
+      valorPedidoInputRef.current.focus();
+    }
+  }, [showModalPedido]);
+
+  const handleNuevoPedidoKeyDown = async (e, field) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    if (field === 'valor_pedido') {
+      if (costoEnvioInputRef.current) {
+        costoEnvioInputRef.current.focus();
       }
-      
-      // Guardar en historial de costos usando el servicio
-      guardarHistorialCosto(direccionCliente, costoEnvio);
-      setHistorialCostos(prev => ({
-        ...prev,
-        [direccionCliente]: parseFloat(costoEnvio)
-      }));
-      
-      // Reproducir sonido de nuevo pedido
-      playSuccessSound();
-      toast.success('Pedido agregado con éxito');
-      setSearchTerm('');
-    }, 100);
+      return;
+    }
+
+    if (field === 'costo_envio') {
+      await handleCrearPedidoDesdeModal();
+    }
+  };
+
+  const handleCrearPedidoDesdeModal = async () => {
+    if (!clienteSeleccionadoPedido) return;
+
+    const direccionCliente = (clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '').trim();
+    if (!direccionCliente) {
+      toast.error('Este cliente no tiene direccion registrada');
+      return;
+    }
+
+    const valorPedido = parseValorNumerico(nuevoPedidoForm.valor_pedido);
+    const costoEnvio = parseValorNumerico(nuevoPedidoForm.costo_envio);
+
+    if (!Number.isFinite(valorPedido) || valorPedido <= 0) {
+      toast.error('Valor del pedido invalido. Solo se permiten numeros.');
+      return;
+    }
+
+    if (!Number.isFinite(costoEnvio) || costoEnvio < 0) {
+      toast.error('Costo de envio invalido. Solo se permiten numeros.');
+      return;
+    }
+
+    setLoadingCrearPedido(true);
+    const ahora = new Date();
+    const fechaFormato = `${ahora.getDate().toString().padStart(2, '0')}/${(ahora.getMonth() + 1).toString().padStart(2, '0')}/${ahora.getFullYear()} ${ahora.getHours().toString().padStart(2, '0')}:${ahora.getMinutes().toString().padStart(2, '0')}`;
+
+    const nuevoPedido = {
+      id: Date.now(),
+      cliente: clienteSeleccionadoPedido.nombre,
+      direccion: direccionCliente,
+      telefono: clienteSeleccionadoPedido.telefono,
+      valor_pedido: valorPedido,
+      costo_envio: costoEnvio,
+      total_a_recibir: valorPedido - costoEnvio,
+      metodo_pago: '',
+      repartidor_id: null,
+      repartidor_nombre: 'Sin Asignar',
+      estadoPago: '',
+      entregado: null,
+      fecha: fechaFormato,
+      hora: getHoraAmPmActual(),
+      timestamp: ahora.toISOString()
+    };
+
+    const tempId = `tmp_${Date.now()}`;
+    setPedidos(prev => [{ ...nuevoPedido, id: tempId, firestoreId: null }, ...prev]);
+
+    try {
+      const pedidoGuardado = await addPedido(nuevoPedido);
+      if (pedidoGuardado && pedidoGuardado.id) {
+        setPedidos(prev => {
+          const sinTemporal = prev.filter(p => p.id !== tempId);
+          const yaExiste = sinTemporal.some(p => String(p.firestoreId || p.id) === String(pedidoGuardado.id));
+          if (yaExiste) return deduplicarPedidos(sinTemporal);
+          return deduplicarPedidos([
+            { ...pedidoGuardado, id: pedidoGuardado.id, firestoreId: pedidoGuardado.id },
+            ...sinTemporal
+          ]);
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error al guardar pedido en Firebase:', error);
+      toast.error('Pedido agregado localmente. Se sincronizara cuando haya conexion.');
+    }
+
+    guardarHistorialCosto(direccionCliente, costoEnvio);
+    setHistorialCostos(prev => ({
+      ...prev,
+      [direccionCliente]: Number(costoEnvio)
+    }));
+
+    playSuccessSound();
+    toast.success('Pedido agregado con exito');
+    cerrarModalPedido();
   };
 
   const handleAsignarRepartidor = async (pedidoId, repartidorId) => {
@@ -570,16 +625,10 @@ const Orders = () => {
     setPedidos(prev => {
       indiceOriginal = prev.findIndex(p => p.id === id);
       pedidoEliminado = indiceOriginal >= 0 ? prev[indiceOriginal] : null;
-
-      if (pedidoEliminado) {
-        const deletedIds = getDeletedPedidosIds();
-        if (pedidoEliminado.firestoreId) deletedIds.add(String(pedidoEliminado.firestoreId));
-        if (pedidoEliminado.id) deletedIds.add(String(pedidoEliminado.id));
-        saveDeletedPedidosIds(deletedIds);
-      }
-
       const updated = prev.filter(p => p.id !== id);
       localStorage.setItem('pedidos', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
       return updated;
     });
 
@@ -593,11 +642,6 @@ const Orders = () => {
       console.error('❌ Error al eliminar pedido en Firebase:', error);
       // Rollback: restaurar el pedido en su posición original si falla Firebase
       if (pedidoEliminado) {
-        const deletedIds = getDeletedPedidosIds();
-        if (pedidoEliminado.firestoreId) deletedIds.delete(String(pedidoEliminado.firestoreId));
-        if (pedidoEliminado.id) deletedIds.delete(String(pedidoEliminado.id));
-        saveDeletedPedidosIds(deletedIds);
-
         setPedidos(prev => {
           const existe = prev.some(p => String(p.id) === String(pedidoEliminado.id));
           if (existe) return prev;
@@ -605,6 +649,8 @@ const Orders = () => {
           const posicion = indiceOriginal >= 0 && indiceOriginal <= restored.length ? indiceOriginal : 0;
           restored.splice(posicion, 0, pedidoEliminado);
           localStorage.setItem('pedidos', JSON.stringify(restored));
+          localStorage.setItem('pedidos_domicilio', JSON.stringify(restored));
+          localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(restored));
           return restored;
         });
       }
@@ -1148,14 +1194,14 @@ const Orders = () => {
   return (
     <div className="space-y-6">
       <div className="w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-[150px_minmax(220px,1fr)_150px_150px_auto] gap-3 items-stretch">
-          <div className="bg-dark-card border border-dark-border rounded-lg px-4 py-3 min-w-[150px]">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Total Pedidos</p>
-            <p className="text-2xl font-bold text-primary">{totalPedidos}</p>
+        <div className="grid grid-cols-2 lg:grid-cols-[150px_minmax(220px,1fr)_150px_150px_auto] gap-2 sm:gap-3 items-stretch">
+          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Pedidos</p>
+            <p className="text-xl sm:text-2xl font-bold text-primary">{totalPedidos}</p>
           </div>
 
-          <div className="bg-dark-card border border-dark-border rounded-lg px-4 py-3 min-w-[200px]">
-            <label className="block text-xs uppercase tracking-wide text-gray-400 mb-2">
+          <div className="col-span-2 lg:col-span-1 bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[200px]">
+            <label className="block text-[10px] sm:text-xs uppercase tracking-wide text-gray-400 mb-1.5 sm:mb-2">
               Consultar Costo por Direccion
             </label>
             <input
@@ -1163,35 +1209,35 @@ const Orders = () => {
               value={consultaDireccion}
               onChange={(e) => setConsultaDireccion(e.target.value)}
               placeholder="Escribe una direccion para sugerir costo..."
-              className="w-full h-[40px] px-4 bg-[#374151] border border-dark-border rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="w-full h-[36px] sm:h-[40px] px-3 sm:px-4 bg-[#374151] border border-dark-border rounded-lg text-sm sm:text-base text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
             />
           </div>
 
-          <div className="bg-dark-card border border-dark-border rounded-lg px-4 py-3 min-w-[150px]">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Total Costos de Envio</p>
-            <p className="text-2xl font-bold text-warning">${totalCostosEnvio.toLocaleString()}</p>
+          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Costos de Envio</p>
+            <p className="text-xl sm:text-2xl font-bold text-warning">${totalCostosEnvio.toLocaleString()}</p>
           </div>
 
-          <div className="bg-dark-card border border-dark-border rounded-lg px-4 py-3 min-w-[150px]">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Total Ventas Pesos</p>
-            <p className="text-2xl font-bold text-success">${totalVentasPesos.toLocaleString()}</p>
+          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Ventas Pesos</p>
+            <p className="text-xl sm:text-2xl font-bold text-success">${totalVentasPesos.toLocaleString()}</p>
           </div>
 
-          <div className="flex justify-end lg:justify-center lg:items-center">
+          <div className="col-span-2 lg:col-span-1 flex justify-end lg:justify-center lg:items-center">
             <button
               onClick={handleCerrarTurno}
               disabled={loadingCierreTurno}
-              className="h-full min-h-[58px] flex items-center gap-2 whitespace-nowrap bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-4 py-3 rounded-lg transition-colors font-medium"
+              className="h-[40px] sm:h-full sm:min-h-[58px] flex items-center gap-1.5 sm:gap-2 whitespace-nowrap bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-3 sm:px-4 py-2 sm:py-3 rounded-md sm:rounded-lg transition-colors text-xs sm:text-sm font-medium"
               title="Cerrar Turno y Guardar Resumen"
             >
               {loadingCierreTurno ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   <span className="hidden sm:inline">Cerrando...</span>
                 </>
               ) : (
                 <>
-                  <Check className="w-5 h-5" />
+                  <Check className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span className="hidden sm:inline">Cerrar Turno</span>
                 </>
               )}
@@ -1207,7 +1253,7 @@ const Orders = () => {
           </div>
         </div>
 
-        <div className="mt-2 text-sm text-gray-300 min-h-[20px]">
+        <div className="mt-2 text-xs sm:text-sm text-gray-300 min-h-[20px]">
           {loadingSugerenciaCosto && 'Buscando sugerencia...'}
           {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && sugerenciaCosto && (
             `Costo sugerido: $${Number(sugerenciaCosto.costoSugerido || 0).toLocaleString()} · Base: ${sugerenciaCosto.direccionBase || 'N/A'} · Coincidencias: ${Number(sugerenciaCosto.coincidencias || 0)}`
@@ -1217,19 +1263,19 @@ const Orders = () => {
       </div>
 
       {/* Buscador con Auto-Insert */}
-      <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-        <label className="block text-sm font-medium text-white mb-3">
+      <div className="sticky top-14 z-20 sm:static bg-dark-card/95 sm:bg-dark-card border border-dark-border rounded-lg p-4 sm:p-6 backdrop-blur-sm sm:backdrop-blur-0">
+        <label className="block text-sm font-medium text-white mb-2 sm:mb-3">
           Buscar Cliente y Crear Pedido
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Search className="absolute left-3 sm:left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
             <input
               type="text"
               placeholder="Escribe el nombre del cliente..."
               value={searchTerm}
               onChange={handleSearchChange}
-              className="w-full pl-12 pr-4 py-3 bg-[#374151] border border-dark-border rounded-lg text-white text-lg placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="w-full pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 bg-[#374151] border border-dark-border rounded-lg text-white text-base sm:text-lg placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
             />
             
             {/* Sugerencias */}
@@ -1254,16 +1300,16 @@ const Orders = () => {
           {/* Botón Nuevo Cliente */}
           <button
             onClick={() => setShowModalCliente(true)}
-            className="px-4 py-3 bg-primary hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-3 bg-primary hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <UserPlus className="w-5 h-5" />
-            <span className="hidden sm:inline">Nuevo Cliente</span>
+            <span>Nuevo Cliente</span>
           </button>
         </div>
       </div>
 
       {/* Tabla de Pedidos */}
-      <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+      <div className="hidden sm:block bg-dark-card border border-dark-border rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-xs">
             <thead className="bg-[#374151]">
@@ -1386,6 +1432,10 @@ const Orders = () => {
                       {editingCell.id === pedido.id && editingCell.field === 'valor_pedido' ? (
                         <input
                           type="number"
+                          inputMode="decimal"
+                          pattern="[0-9]*"
+                          min="0"
+                          step="1"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellBlur}
@@ -1409,6 +1459,10 @@ const Orders = () => {
                       {editingCell.id === pedido.id && editingCell.field === 'costo_envio' ? (
                         <input
                           type="number"
+                          inputMode="decimal"
+                          pattern="[0-9]*"
+                          min="0"
+                          step="1"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellBlur}
@@ -1498,7 +1552,7 @@ const Orders = () => {
       </div>
 
       {/* Resumen por repartidor */}
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="hidden md:grid mt-6 gap-4 md:grid-cols-2">
         {(() => {
           const pedidosPorRepartidor = {};
           pedidosDelDia.forEach((pedido) => {
@@ -1543,29 +1597,53 @@ const Orders = () => {
       </div>
 
       {/* Mobile Cards */}
-      <div className="sm:hidden divide-y divide-dark-border mt-6">
+      <div className="sm:hidden mt-4 space-y-3">
         {pedidosDelDia.length === 0 ? (
-          <div className="px-4 py-10 text-center">
+          <div className="px-4 py-10 text-center bg-dark-card border border-dark-border rounded-lg">
             <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
             <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
           </div>
         ) : (
           pedidosDelDia.map((pedido, index) => (
-            <div key={`${pedido.firestoreId || pedido.id || 'pedido-mobile'}-${pedido.timestamp || pedido.fecha || index}-${index}`} className="flex items-center justify-between px-2 py-2 gap-2">
-              {/* Info clave en una sola fila */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-primary">#{pedidosDelDia.length - index}</span>
-                  <span className="truncate font-semibold text-white text-sm max-w-[90px]">{pedido.cliente}</span>
-                  <span className="text-xs text-gray-400">{pedido.fecha}</span>
+            <div key={`${pedido.firestoreId || pedido.id || 'pedido-mobile'}-${pedido.timestamp || pedido.fecha || index}-${index}`} className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-primary">#{pedidosDelDia.length - index}</span>
+                    <span className="truncate font-semibold text-white text-sm">{pedido.cliente}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-400 truncate" title={pedido.direccion}>{pedido.direccion || '-'}</div>
+                  <div className="mt-1 text-[11px] text-gray-500">{pedido.fecha}</div>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-success font-bold">${pedido.total_a_recibir.toLocaleString()}</span>
-                  <span className={`text-xs font-semibold ${pedido.estadoPago === 'pagado' ? 'text-success' : pedido.estadoPago === 'pendiente' ? 'text-warning' : 'text-gray-400'}`}>{pedido.estadoPago === 'pagado' ? 'Pagado' : pedido.estadoPago === 'pendiente' ? 'Pend.' : '-'}</span>
+                <div className="text-right">
+                  <div className="text-success font-bold text-sm">${pedido.total_a_recibir.toLocaleString()}</div>
+                  <div className="text-[10px] text-gray-400">{formatHoraAmPm(pedido.hora)}</div>
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                  <div className="text-gray-400">Valor</div>
+                  <div className="text-white font-semibold">${pedido.valor_pedido.toLocaleString()}</div>
+                </div>
+                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                  <div className="text-gray-400">Costo</div>
+                  <div className="text-warning font-semibold">${pedido.costo_envio.toLocaleString()}</div>
+                </div>
+                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                  <div className="text-gray-400">Estado</div>
+                  <div className={`font-semibold ${pedido.estadoPago === 'pagado' ? 'text-success' : pedido.estadoPago === 'pendiente' ? 'text-warning' : 'text-gray-400'}`}>
+                    {pedido.estadoPago === 'pagado' ? 'Pagado' : pedido.estadoPago === 'pendiente' ? 'Pend.' : '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
                   <select
                     value={pedido.repartidor_id || ''}
                     onChange={(e) => handleAsignarRepartidor(pedido.id, e.target.value)}
-                    className="text-xs bg-[#374151] border border-dark-border rounded px-1 py-0.5 text-gray-200 max-w-[110px]"
+                    className="w-full text-xs bg-[#374151] border border-dark-border rounded px-2 py-1 text-gray-200"
                   >
                     <option value="">-</option>
                     {(repartidores || []).map(rep => (
@@ -1574,10 +1652,23 @@ const Orders = () => {
                       </option>
                     ))}
                   </select>
+                  <div className="text-[10px] text-gray-400 mt-0.5 text-center">{formatHoraAmPm(pedido.hora_repartidor)}</div>
+                </div>
+                <div>
+                  <select
+                    value={pedido.metodo_pago || ''}
+                    onChange={(e) => handleMetodoPagoChange(pedido.id, e.target.value)}
+                    className="w-full text-xs bg-[#374151] border border-dark-border rounded px-2 py-1 text-gray-200"
+                  >
+                    <option value="">-</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Banco">Banco</option>
+                  </select>
+                  <div className="text-[10px] text-gray-400 mt-0.5 text-center">{formatHoraAmPm(pedido.hora_metodo_pago)}</div>
                 </div>
               </div>
-              {/* Acciones compactas */}
-              <div className="flex flex-col gap-1 items-end">
+
+              <div className="mt-2 flex items-center justify-end gap-2">
                 <button
                   onClick={() => toggleEstadoPago(pedido.id)}
                   className={`px-2 py-1 rounded text-xs font-bold ${pedido.estadoPago === 'pagado' ? 'bg-success text-white' : pedido.estadoPago === 'pendiente' ? 'bg-warning text-white' : 'bg-dark-border text-gray-200'}`}
@@ -1587,7 +1678,7 @@ const Orders = () => {
                 </button>
                 <button
                   onClick={() => toggleEntregado(pedido.id)}
-                  className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${pedido.entregado ? 'bg-success/20 text-success' : 'bg-dark-border text-gray-300'}`}
+                  className={`inline-block px-2 py-1 rounded text-xs font-semibold ${pedido.entregado ? 'bg-success/20 text-success' : 'bg-dark-border text-gray-300'}`}
                   title="Entregado"
                 >
                   {pedido.entregado === null || typeof pedido.entregado === 'undefined' ? '-' : pedido.entregado ? 'Si' : 'No'}
@@ -1623,6 +1714,98 @@ const Orders = () => {
           ))}
         </select>
       </div>
+
+      {/* Modal Nuevo Pedido */}
+      {showModalPedido && clienteSeleccionadoPedido && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1f2937] border border-[#374151] rounded-lg p-5 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">Nuevo Pedido</h3>
+              <button
+                onClick={cerrarModalPedido}
+                className="text-gray-400 hover:text-white transition-colors"
+                disabled={loadingCrearPedido}
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-dark-bg border border-dark-border rounded-lg p-3 text-sm">
+                <p className="text-white font-semibold truncate" title={clienteSeleccionadoPedido.nombre}>{clienteSeleccionadoPedido.nombre}</p>
+                <p className="text-gray-400 truncate" title={clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '-'}>
+                  {clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '-'}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Valor del Pedido *</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                  min="0"
+                  step="1"
+                  value={nuevoPedidoForm.valor_pedido}
+                  onChange={(e) => setNuevoPedidoForm(prev => ({ ...prev, valor_pedido: e.target.value }))}
+                  onKeyDown={(e) => handleNuevoPedidoKeyDown(e, 'valor_pedido')}
+                  className="w-full px-4 py-2.5 bg-[#374151] border border-[#374151] rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+                  placeholder="Ej: 50000"
+                  ref={valorPedidoInputRef}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-1.5">Costo de Envio *</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                  min="0"
+                  step="1"
+                  value={nuevoPedidoForm.costo_envio}
+                  onChange={(e) => setNuevoPedidoForm(prev => ({ ...prev, costo_envio: e.target.value }))}
+                  onKeyDown={(e) => handleNuevoPedidoKeyDown(e, 'costo_envio')}
+                  className="w-full px-4 py-2.5 bg-[#374151] border border-[#374151] rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+                  placeholder="Ej: 7000"
+                  ref={costoEnvioInputRef}
+                />
+              </div>
+
+              <div className="bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                <span className="text-gray-400">Total a Recibir</span>
+                <span className="text-success font-bold">
+                  ${Math.max(0, (Number(parseValorNumerico(nuevoPedidoForm.valor_pedido)) || 0) - (Number(parseValorNumerico(nuevoPedidoForm.costo_envio)) || 0)).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={cerrarModalPedido}
+                  disabled={loadingCrearPedido}
+                  className="flex-1 px-4 py-2 bg-[#374151] text-white rounded-lg hover:bg-[#4b5563] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCrearPedidoDesdeModal}
+                  disabled={loadingCrearPedido}
+                  className="flex-1 px-4 py-2 bg-[#206DDA] text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loadingCrearPedido ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    'Crear Pedido'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Nuevo Cliente */}
       {showModalCliente && (

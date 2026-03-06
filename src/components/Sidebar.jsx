@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   LayoutDashboard, 
-  Package, 
+  Bike,
   Users, 
   Truck,
   BarChart3,
@@ -15,7 +15,7 @@ import Logo from './Logo';
 const Sidebar = ({ isOpen, setIsOpen, activeSection, setActiveSection }) => {
   const menuItems = [
     { id: 'panel', label: 'Panel', icon: LayoutDashboard },
-    { id: 'pedidos', label: 'Pedidos', icon: Package },
+    { id: 'pedidos', label: 'Pedidos', icon: Bike },
     { id: 'clientes', label: 'Clientes', icon: Users },
     { id: 'repartidores', label: 'Repartidores', icon: Truck },
     { id: 'intelligence', label: 'Inteligencia', icon: Brain },
