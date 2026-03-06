@@ -47,7 +47,7 @@ function App() {
   };
 
   const navbarSectionTitle = activeSection === 'pedidos'
-    ? 'Despacho Rapido - Gestion de pedidos del dia'
+    ? 'Despacho Rapido'
     : '';
 
   return (

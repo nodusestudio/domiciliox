@@ -14,7 +14,7 @@ const Navbar = ({ toggleSidebar, sectionTitle = '' }) => {
             <Menu className="w-6 h-6" />
           </button>
           {sectionTitle && (
-            <p className="text-sm text-gray-300 whitespace-nowrap hidden sm:block">
+            <p className="text-xs sm:text-sm text-gray-300 whitespace-nowrap">
               {sectionTitle}
             </p>
           )}

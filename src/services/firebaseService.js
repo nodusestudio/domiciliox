@@ -686,6 +686,9 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
       }
     }
 
+    // Compatibilidad solicitada: forzar borrado explícito en colección deliveries cuando corresponda.
+    await deleteDoc(doc(db, 'deliveries', String(id))).then(() => console.log('Eliminado de la nube')).catch(() => {});
+
     if (!softDeleteOk) {
       throw new Error(`No se pudo marcar eliminado el pedido (id: ${id})`);
     }

@@ -1128,14 +1128,11 @@ const Orders = () => {
         await batchArchivarPedidos(idsArchivar);
       }
 
-      // Limpiar contadores ocultando el turno actual en pantalla
-      const idsDelTurno = new Set(pedidosDelDia.map(p => String(p.id)));
-      setPedidos(prev => prev.map(p => {
-        if (idsDelTurno.has(String(p.id))) {
-          return { ...p, archivado: true };
-        }
-        return p;
-      }));
+        // Limpiar por completo el estado local para arrancar el turno desde cero.
+        setPedidos([]);
+        localStorage.setItem('pedidos', JSON.stringify([]));
+        localStorage.setItem('pedidos_domicilio', JSON.stringify([]));
+        localStorage.setItem('pedidos_domicilio_cache', JSON.stringify([]));
 
       toast.success('✅ Turno cerrado y guardado en cierres_turno');
     } catch (error) {
@@ -1194,13 +1191,13 @@ const Orders = () => {
   return (
     <div className="space-y-6">
       <div className="w-full">
-        <div className="grid grid-cols-2 lg:grid-cols-[150px_minmax(220px,1fr)_150px_150px_auto] gap-2 sm:gap-3 items-stretch">
+        <div className="grid grid-cols-[116px_minmax(0,1fr)] lg:grid-cols-[150px_minmax(220px,1fr)_150px_150px_auto] gap-2 sm:gap-3 items-stretch">
           <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
             <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Pedidos</p>
             <p className="text-xl sm:text-2xl font-bold text-primary">{totalPedidos}</p>
           </div>
 
-          <div className="col-span-2 lg:col-span-1 bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[200px]">
+          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-0">
             <label className="block text-[10px] sm:text-xs uppercase tracking-wide text-gray-400 mb-1.5 sm:mb-2">
               Consultar Costo por Direccion
             </label>

@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, clearIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Variables de entorno esperadas por Firebase
@@ -63,3 +63,14 @@ if (app) {
 
 export const db = app ? getFirestore(app) : null;
 export const auth = app ? getAuth(app) : null;
+
+// Desactivar persistencia local de Firestore para evitar datos obsoletos.
+if (db) {
+  clearIndexedDbPersistence(db)
+    .then(() => {
+      console.log('🧹 Firestore IndexedDB persistence desactivada');
+    })
+    .catch((error) => {
+      console.warn('⚠️ No se pudo limpiar IndexedDB persistence:', error?.message || error);
+    });
+}

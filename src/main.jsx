@@ -3,17 +3,20 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-// Registrar Service Worker para PWA
+// Desactivar Service Worker y limpiar caches para evitar respuestas obsoletas.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(
-      (registration) => {
-        console.log('✅ Service Worker registrado:', registration.scope);
-      },
-      (error) => {
-        console.log('❌ Error al registrar Service Worker:', error);
-      }
-    );
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        registration.unregister();
+      });
+    });
+
+    if ('caches' in window) {
+      caches.keys().then((cacheNames) => {
+        cacheNames.forEach((cacheName) => caches.delete(cacheName));
+      });
+    }
   });
 }
 
