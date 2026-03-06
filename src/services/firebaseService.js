@@ -86,6 +86,46 @@ const cache = {
 const CACHE_TTL = 30000; // 30 segundos de validez
 const CACHE_STALE_TIME = 5 * 60 * 1000; // 5 minutos para considerar muy viejo
 
+const getRangoHoyFirestore = () => {
+  const ahora = new Date();
+  const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0, 0);
+  const fin = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
+  return {
+    inicio: Timestamp.fromDate(inicio),
+    fin: Timestamp.fromDate(fin)
+  };
+};
+
+const esFechaDeHoy = (fechaValue) => {
+  if (!fechaValue) return false;
+  const hoy = new Date();
+  const toDate = (value) => {
+    if (value?.toDate) return value.toDate();
+    if (value instanceof Date) return value;
+    if (typeof value === 'string') {
+      const soloFecha = value.split(' ')[0];
+      const partes = soloFecha.split('/');
+      if (partes.length === 3) {
+        const [dia, mes, anio] = partes.map(Number);
+        if (Number.isFinite(dia) && Number.isFinite(mes) && Number.isFinite(anio)) {
+          return new Date(anio, mes - 1, dia);
+        }
+      }
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+  };
+
+  const fecha = toDate(fechaValue);
+  if (!fecha) return false;
+  return (
+    fecha.getFullYear() === hoy.getFullYear() &&
+    fecha.getMonth() === hoy.getMonth() &&
+    fecha.getDate() === hoy.getDate()
+  );
+};
+
 /**
  * Verifica si la caché es válida (fresca)
  */
@@ -106,12 +146,19 @@ export const listenPedidosRealtime = (callback) => {
   }
 
   try {
-    const pedidosRef = query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30));
+    const { inicio, fin } = getRangoHoyFirestore();
+    const pedidosRef = query(
+      collection(db, pedidosCollection),
+      where('fecha', '>=', inicio),
+      where('fecha', '<=', fin),
+      orderBy('fecha', 'desc'),
+      limit(100)
+    );
     return onSnapshot(pedidosRef, (snapshot) => {
       const pedidos = snapshot.docs
       .filter(docSnap => {
         const data = docSnap.data() || {};
-        return !data.eliminado;
+        return !data.eliminado && esFechaDeHoy(data.fecha);
       })
       .map(doc => {
         const data = doc.data();
@@ -362,14 +409,21 @@ const getPedidosLocal = () => {
 const getPedidosFirebase = async () => {
   return ejecutarConReintentos(async () => {
     console.log("🔄 Obteniendo pedidos desde Firebase...");
+    const { inicio, fin } = getRangoHoyFirestore();
     
     const querySnapshot = await getDocs(
-      query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
+      query(
+        collection(db, pedidosCollection),
+        where('fecha', '>=', inicio),
+        where('fecha', '<=', fin),
+        orderBy('fecha', 'desc'),
+        limit(100)
+      )
     );
     const pedidos = querySnapshot.docs
     .filter(docSnap => {
       const data = docSnap.data() || {};
-      return !data.eliminado;
+      return !data.eliminado && esFechaDeHoy(data.fecha);
     })
     .map(doc => {
       const data = doc.data();
@@ -627,8 +681,13 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
       }
     }
 
-    // Compatibilidad solicitada: forzar borrado explícito en colección deliveries cuando corresponda.
-    await deleteDoc(doc(db, 'deliveries', String(id))).then(() => console.log('Eliminado de la nube')).catch(() => {});
+    // Compatibilidad solicitada: forzar borrado explícito en colección deliveries con el ID correcto.
+    const pedidoId = String(id || '');
+    if (pedidoId) {
+      await deleteDoc(doc(db, 'deliveries', pedidoId))
+        .then(() => console.log('Eliminado de la nube'))
+        .catch(() => {});
+    }
 
     if (!softDeleteOk) {
       throw new Error(`No se pudo marcar eliminado el pedido (id: ${id})`);
