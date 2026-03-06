@@ -5,13 +5,39 @@ export const batchArchivarPedidos = async (ids = []) => {
     throw new Error('No se proporcionaron IDs de pedidos para archivar.');
   }
   try {
+    if (USE_LOCAL_STORAGE || !db) {
+      const pedidos = getPedidosLocalData();
+      const idsSet = new Set(ids.map(String));
+      const actualizados = pedidos.map(p => {
+        const firestoreId = p.firestoreId ? String(p.firestoreId) : '';
+        const id = p.id ? String(p.id) : '';
+        if (idsSet.has(firestoreId) || idsSet.has(id)) {
+          return { ...p, archivado: true };
+        }
+        return p;
+      });
+      setPedidosLocalData(actualizados);
+      toast.success('Pedidos archivados correctamente');
+      return;
+    }
+
     const batch = writeBatch(db);
-    ids.forEach(id => {
-      if (id) {
-        const ref = doc(db, pedidosCollection, id);
-        batch.update(ref, { archivado: true });
+    for (const id of ids) {
+      if (!id) continue;
+
+      const primaryRef = doc(db, pedidosCollection, id);
+      const primarySnap = await getDoc(primaryRef);
+      if (primarySnap.exists()) {
+        batch.update(primaryRef, { archivado: true });
+        continue;
       }
-    });
+
+      const legacyRef = doc(db, legacyPedidosCollection, id);
+      const legacySnap = await getDoc(legacyRef);
+      if (legacySnap.exists()) {
+        batch.update(legacyRef, { archivado: true });
+      }
+    }
     await batch.commit();
     invalidateCache('pedidos');
     toast.success('Pedidos archivados correctamente');
@@ -33,6 +59,7 @@ import {
   where,
   orderBy,
   limit,
+  onSnapshot,
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
@@ -40,17 +67,18 @@ import { db, auth } from '../config/firebase';
 import toast from 'react-hot-toast';
 
 // ==================== CONFIGURACIÓN ADAPTADOR LOCAL ====================
-// Cambiar a 'true' para usar localStorage, 'false' para Firebase
-const USE_LOCAL_STORAGE = false;
+// Se activa automáticamente si Firebase no está configurado en desarrollo.
+const USE_LOCAL_STORAGE = import.meta.env.VITE_USE_LOCAL_STORAGE === 'true' || !db;
 
 // Colecciones de Firebase
 const cierresDiariosCollection = 'cierres_diarios';
+const cierresTurnoCollection = 'cierres_turno';
+const legacyPedidosCollection = 'pedidos';
 
 // ==================== SISTEMA DE CACHÉ SWR ====================
 // Caché en memoria para respuesta instantánea
 const cache = {
   clientes: { data: null, timestamp: 0, loading: false },
-  import { onSnapshot } from 'firebase/firestore';
   pedidos: { data: null, timestamp: 0, loading: false },
   repartidores: { data: null, timestamp: 0, loading: false }
 };
@@ -69,41 +97,54 @@ const isCacheFresh = (cacheKey) => {
 };
 
 /**
-  // Escuchar pedidos en tiempo real (sin caché, solo para UI)
-  export const listenPedidosRealtime = (callback) => {
-    try {
-      const pedidosRef = query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30));
-      return onSnapshot(pedidosRef, (snapshot) => {
-        const pedidos = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: String(doc.id || ''),
-            firestoreId: String(doc.id || ''),
-            cliente: String(data.cliente || ''),
-            direccion: String(data.direccion || ''),
-            telefono: String(data.telefono || ''),
-            productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
-            valor_pedido: Number(data.valor_pedido) || 0,
-            costo_envio: Number(data.costo_envio) || 0,
-            total_a_recibir: Number(data.total_a_recibir) || 0,
-            metodo_pago: String(data.metodo_pago || 'Efectivo'),
-            repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
-            repartidor_nombre: data.repartidor_nombre || 'Sin Asignar',
-            estadoPago: String(data.estadoPago || 'pendiente'),
-            entregado: Boolean(data.entregado),
-            estado: String(data.estado || 'Recibido'),
-            fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
-            timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
-            archivado: Boolean(data.archivado)
-          };
-        });
-        callback(pedidos);
+ * Escuchar pedidos en tiempo real (sin caché, solo para UI)
+ */
+export const listenPedidosRealtime = (callback) => {
+  if (USE_LOCAL_STORAGE || !db) {
+    callback(getPedidosLocal());
+    return () => {};
+  }
+
+  try {
+    const pedidosRef = query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30));
+    return onSnapshot(pedidosRef, (snapshot) => {
+      const pedidos = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: String(doc.id || ''),
+          firestoreId: String(doc.id || ''),
+          cliente: String(data.cliente || ''),
+          direccion: String(data.direccion || data.direccion_habitual || data.domicilio || ''),
+          telefono: String(data.telefono || ''),
+          productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
+          valor_pedido: Number(data.valor_pedido) || 0,
+          costo_envio: Number(data.costo_envio) || 0,
+          total_a_recibir: Number(data.total_a_recibir) || 0,
+          metodo_pago: data.metodo_pago ? String(data.metodo_pago) : '',
+          repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
+          repartidor_nombre: data.repartidor_nombre || 'Sin Asignar',
+          estadoPago: data.estadoPago ? String(data.estadoPago) : '',
+          entregado: typeof data.entregado === 'boolean' ? data.entregado : null,
+          estado: String(data.estado || 'Recibido'),
+          fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+          hora: String(data.hora || ''),
+          hora_repartidor: String(data.hora_repartidor || ''),
+          hora_metodo_pago: String(data.hora_metodo_pago || ''),
+          hora_estado_pago: String(data.hora_estado_pago || ''),
+          hora_entregado: String(data.hora_entregado || ''),
+          timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
+          archivado: Boolean(data.archivado)
+        };
       });
-    } catch (error) {
-      console.error('Error al escuchar pedidos en tiempo real:', error);
-      callback([]);
-    }
-  };
+      callback(pedidos);
+    });
+  } catch (error) {
+    console.error('Error al escuchar pedidos en tiempo real:', error);
+    callback([]);
+  }
+};
+
+/**
  * Verifica si la caché está obsoleta pero usable
  */
 const isCacheStale = (cacheKey) => {
@@ -271,12 +312,42 @@ const setLocalData = (key, data) => {
   }
 };
 
+const getPedidosLocalData = () => {
+  try {
+    const pedidosRaw = localStorage.getItem('pedidos');
+    if (pedidosRaw !== null) {
+      const parsed = JSON.parse(pedidosRaw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (error) {
+    console.error('Error al leer pedidos:', error);
+  }
+  return getLocalData('pedidos_domicilio');
+};
+
+const setPedidosLocalData = (data) => {
+  setLocalData('pedidos', data);
+  setLocalData('pedidos_domicilio', data);
+};
+
 // ==================== PEDIDOS DOMICILIO ====================
 export const pedidosCollection = 'pedidos_domicilio';
 
+const getPedidoDocRefConFallback = async (id) => {
+  const primaryRef = doc(db, pedidosCollection, id);
+  const primarySnap = await getDoc(primaryRef);
+  if (primarySnap.exists()) return primaryRef;
+
+  const legacyRef = doc(db, legacyPedidosCollection, id);
+  const legacySnap = await getDoc(legacyRef);
+  if (legacySnap.exists()) return legacyRef;
+
+  return primaryRef;
+};
+
 // Versión LOCAL
 const getPedidosLocal = () => {
-  const pedidos = getLocalData('pedidos_domicilio');
+  const pedidos = getPedidosLocalData();
   // Ordenar por fecha descendente (más reciente primero)
   return pedidos.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 };
@@ -304,14 +375,19 @@ const getPedidosFirebase = async () => {
         return {
           id: String(doc.id || ''),
           cliente: String(data.cliente || ''),
-          direccion: String(data.direccion || ''),
+          direccion: String(data.direccion || data.direccion_habitual || data.domicilio || ''),
           telefono: String(data.telefono || ''),
           productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
           total: Number(data.total) || 0,
-          metodo_pago: String(data.metodo_pago || 'Efectivo'),
+          metodo_pago: data.metodo_pago ? String(data.metodo_pago) : '',
           repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
           estado: String(data.estado || 'Recibido'),
           fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+          hora: String(data.hora || ''),
+          hora_repartidor: String(data.hora_repartidor || ''),
+          hora_metodo_pago: String(data.hora_metodo_pago || ''),
+          hora_estado_pago: String(data.hora_estado_pago || ''),
+          hora_entregado: String(data.hora_entregado || ''),
           timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
         };
       });
@@ -334,14 +410,19 @@ const getPedidosFirebase = async () => {
       return {
         id: String(doc.id || ''),
         cliente: String(data.cliente || ''),
-        direccion: String(data.direccion || ''),
+        direccion: String(data.direccion || data.direccion_habitual || data.domicilio || ''),
         telefono: String(data.telefono || ''),
         productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
         total: Number(data.total) || 0,
-        metodo_pago: String(data.metodo_pago || 'Efectivo'),
+        metodo_pago: data.metodo_pago ? String(data.metodo_pago) : '',
         repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
         estado: String(data.estado || 'Recibido'),
         fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
+        hora: String(data.hora || ''),
+        hora_repartidor: String(data.hora_repartidor || ''),
+        hora_metodo_pago: String(data.hora_metodo_pago || ''),
+        hora_estado_pago: String(data.hora_estado_pago || ''),
+        hora_entregado: String(data.hora_entregado || ''),
         timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
       };
     });
@@ -367,7 +448,8 @@ export const getPedidos = USE_LOCAL_STORAGE ? getPedidosLocal : getPedidosFireba
 
 // Versión LOCAL
 const addPedidoLocal = (pedidoData) => {
-  const pedidos = getLocalData('pedidos_domicilio');
+  const pedidos = getPedidosLocalData();
+  const horaPedido = pedidoData.hora || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   const nuevoPedido = {
     id: Date.now().toString(),
     cliente: pedidoData.cliente || '',
@@ -375,15 +457,16 @@ const addPedidoLocal = (pedidoData) => {
     telefono: pedidoData.telefono || '',
     productos_pedido: pedidoData.productos_pedido || [],
     total: pedidoData.total || 0,
-    metodo_pago: pedidoData.metodo_pago || 'Efectivo',
+    metodo_pago: pedidoData.metodo_pago || '',
     repartidor_id: pedidoData.repartidor_id || null,
     estado: pedidoData.estado || 'Recibido',
+    hora: horaPedido,
     timestamp: new Date().toISOString(),
     fecha: new Date()
   };
   
   pedidos.unshift(nuevoPedido); // Agregar al inicio
-  setLocalData('pedidos_domicilio', pedidos);
+  setPedidosLocalData(pedidos);
   toast.success('Información guardada con éxito');
   return nuevoPedido;
 };
@@ -392,6 +475,7 @@ const addPedidoLocal = (pedidoData) => {
 const addPedidoFirebase = async (pedidoData) => {
   return ejecutarConReintentos(async () => {
     const ahora = Timestamp.now();
+    const horaPedido = pedidoData.hora || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     const pedido = {
       cliente: pedidoData.cliente || '',
       direccion: pedidoData.direccion || '',
@@ -399,15 +483,16 @@ const addPedidoFirebase = async (pedidoData) => {
       valor_pedido: pedidoData.valor_pedido || 0,
       costo_envio: pedidoData.costo_envio || 0,
       total_a_recibir: pedidoData.total_a_recibir || 0,
-      metodo_pago: pedidoData.metodo_pago || 'Efectivo',
+      metodo_pago: pedidoData.metodo_pago || '',
       repartidor_id: pedidoData.repartidor_id || null,
       repartidor_nombre: pedidoData.repartidor_nombre || 'Sin Asignar',
-      estadoPago: pedidoData.estadoPago || 'pendiente',
-      entregado: pedidoData.entregado || false,
+      estadoPago: pedidoData.estadoPago || '',
+      entregado: typeof pedidoData.entregado === 'boolean' ? pedidoData.entregado : null,
+      hora: horaPedido,
       fecha: ahora
     };
 
-    const docRef = await addDoc(collection(db, 'pedidos'), pedido);
+    const docRef = await addDoc(collection(db, pedidosCollection), pedido);
     invalidateCache('pedidos'); // Invalidar caché para refrescar datos
     console.log('✅ Pedido guardado en Firebase con ID:', docRef.id);
     
@@ -425,6 +510,7 @@ const addPedidoFirebase = async (pedidoData) => {
       repartidor_nombre: pedido.repartidor_nombre,
       estadoPago: pedido.estadoPago,
       entregado: pedido.entregado,
+      hora: pedido.hora,
       fecha: ahora.toDate().toLocaleDateString('es-ES'),
       timestamp: ahora.toDate().toISOString()
     };
@@ -439,12 +525,12 @@ export const addPedido = USE_LOCAL_STORAGE ? addPedidoLocal : addPedidoFirebase;
 
 // Versión LOCAL
 const updatePedidoLocal = (id, pedidoData) => {
-  const pedidos = getLocalData('pedidos_domicilio');
+  const pedidos = getPedidosLocalData();
   const index = pedidos.findIndex(p => p.id === id);
   
   if (index !== -1) {
     pedidos[index] = { ...pedidos[index], ...pedidoData };
-    setLocalData('pedidos_domicilio', pedidos);
+    setPedidosLocalData(pedidos);
     toast.success('Información guardada con éxito');
   } else {
     toast.error('Pedido no encontrado');
@@ -461,7 +547,8 @@ const updatePedidoFirebase = async (id, pedidoData) => {
   }
   return ejecutarConReintentos(async () => {
     try {
-      await updateDoc(doc(db, pedidosCollection, id), pedidoData);
+      const pedidoRef = await getPedidoDocRefConFallback(id);
+      await updateDoc(pedidoRef, pedidoData);
       invalidateCache('pedidos');
       toast.success('Información guardada con éxito');
     } catch (error) {
@@ -479,16 +566,65 @@ export const updatePedido = USE_LOCAL_STORAGE ? updatePedidoLocal : updatePedido
 
 // Versión LOCAL
 const deletePedidoLocal = (id) => {
-  const pedidos = getLocalData('pedidos_domicilio');
+  const pedidos = getPedidosLocalData();
   const filtrados = pedidos.filter(p => p.id !== id);
-  setLocalData('pedidos_domicilio', filtrados);
+  setPedidosLocalData(filtrados);
   toast.success('Información guardada con éxito');
 };
 
 // Versión FIREBASE optimizada con reintentos
-const deletePedidoFirebase = async (id) => {
+const deletePedidoFirebase = async (id, pedidoData = null) => {
   return ejecutarConReintentos(async () => {
-    await deleteDoc(doc(db, pedidosCollection, id));
+    let pedidoRef = await getPedidoDocRefConFallback(id);
+    let snap = await getDoc(pedidoRef);
+
+    // Si el ID no existe (caso de IDs locales antiguos), intentar resolver por datos del pedido.
+    if (!snap.exists() && pedidoData && pedidoData.cliente) {
+      const candidatosSnap = await getDocs(
+        query(
+          collection(db, pedidosCollection),
+          where('cliente', '==', String(pedidoData.cliente || '')),
+          orderBy('fecha', 'desc'),
+          limit(20)
+        )
+      );
+
+      const candidatos = candidatosSnap.docs;
+      if (candidatos.length > 0) {
+        const normalizar = (v) => String(v || '').trim().toLowerCase();
+        const dirObjetivo = normalizar(pedidoData.direccion);
+        const telObjetivo = normalizar(pedidoData.telefono);
+        const valorObjetivo = Number(pedidoData.valor_pedido) || 0;
+        const costoObjetivo = Number(pedidoData.costo_envio) || 0;
+
+        const matchFuerte = candidatos.find(docSnap => {
+          const d = docSnap.data() || {};
+          return (
+            normalizar(d.direccion) === dirObjetivo &&
+            normalizar(d.telefono) === telObjetivo &&
+            (Number(d.valor_pedido) || 0) === valorObjetivo &&
+            (Number(d.costo_envio) || 0) === costoObjetivo
+          );
+        });
+
+        const matchBasico = candidatos.find(docSnap => {
+          const d = docSnap.data() || {};
+          return normalizar(d.direccion) === dirObjetivo;
+        });
+
+        const elegido = matchFuerte || matchBasico || candidatos[0];
+        if (elegido) {
+          pedidoRef = doc(db, pedidosCollection, elegido.id);
+          snap = await getDoc(pedidoRef);
+        }
+      }
+    }
+
+    if (!snap.exists()) {
+      throw new Error(`Pedido no encontrado para eliminar (id: ${id})`);
+    }
+
+    await deleteDoc(pedidoRef);
     invalidateCache('pedidos');
     toast.success('Información guardada con éxito');
   }, 'deletePedido').catch(error => {
@@ -1093,10 +1229,94 @@ export const obtenerHistorialCostos = () => {
   return historial.length > 0 ? historial[0] : {};
 };
 
+const normalizarTexto = (texto = '') => {
+  return String(texto)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+};
+
+const extraerDireccion = (item = {}) => {
+  return String(
+    item.direccion ||
+    item.direccion_habitual ||
+    item.address ||
+    item.zone ||
+    ''
+  );
+};
+
+const extraerCosto = (item = {}) => {
+  return Number(
+    item.costo_envio ||
+    item.costoEnvio ||
+    item.delivery_cost ||
+    item.shippingCost ||
+    item.costo ||
+    0
+  );
+};
+
+const calcularCostoSugerido = (items = [], direccionConsulta = '') => {
+  const consulta = normalizarTexto(direccionConsulta);
+  if (!consulta) return null;
+
+  const coincidencias = (items || []).filter(item => {
+    const direccion = normalizarTexto(extraerDireccion(item));
+    return direccion && (direccion.includes(consulta) || consulta.includes(direccion));
+  });
+
+  if (coincidencias.length === 0) return null;
+
+  const costos = coincidencias
+    .map(extraerCosto)
+    .filter(costo => Number.isFinite(costo) && costo > 0);
+
+  if (costos.length === 0) return null;
+
+  const promedio = Math.round(costos.reduce((sum, value) => sum + value, 0) / costos.length);
+  return {
+    costoSugerido: promedio,
+    coincidencias: coincidencias.length,
+    direccionBase: extraerDireccion(coincidencias[0])
+  };
+};
+
+export const consultarCostoSugeridoPorDireccion = async (direccionConsulta = '') => {
+  const consulta = String(direccionConsulta || '').trim();
+  if (consulta.length < 3) return null;
+
+  const pedidosLocales = getPedidosLocalData();
+  const historialObj = obtenerHistorialCostos();
+  const historialLocal = Object.entries(historialObj || {}).map(([direccion, costo]) => ({
+    direccion,
+    costo_envio: Number(costo) || 0
+  }));
+
+  if (USE_LOCAL_STORAGE || !db) {
+    return calcularCostoSugerido([...pedidosLocales, ...historialLocal], consulta);
+  }
+
+  try {
+    const snapshot = await getDocs(collection(db, 'deliveries'));
+    const deliveries = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+
+    const sugerencia = calcularCostoSugerido(deliveries, consulta);
+    if (sugerencia) return sugerencia;
+
+    // Fallback adicional con datos locales para no dejar al usuario sin sugerencia.
+    return calcularCostoSugerido([...pedidosLocales, ...historialLocal], consulta);
+  } catch (error) {
+    console.warn('⚠️ No se pudo consultar deliveries. Usando historial local.', error);
+    return calcularCostoSugerido([...pedidosLocales, ...historialLocal], consulta);
+  }
+};
+
 // ==================== SINCRONIZACIÓN FUTURA ====================
 export const sincronizarConNube = async () => {
   try {
-    const pedidos = getLocalData('pedidos_domicilio');
+    const pedidos = getPedidosLocalData();
     const clientes = getLocalData('clientes');
     const repartidores = getLocalData('repartidores');
     
@@ -1143,6 +1363,12 @@ export const resetPermissionErrors = () => {
  * Verifica la conectividad con Firebase intentando una operación de lectura simple
  */
 export const verificarConexionFirebase = async () => {
+  if (USE_LOCAL_STORAGE || !db) {
+    connectionState.isOnline = false;
+    console.log('ℹ️ Firebase no configurado. Operando en modo local.');
+    return false;
+  }
+
   try {
     console.log('🔍 Verificando conexión a Firebase...');
     
@@ -1177,6 +1403,10 @@ export const verificarConexionFirebase = async () => {
  * @returns {Promise<{nombreEmpresa: string}>} Configuración de la empresa
  */
 export const getConfiguracionEmpresa = async () => {
+  if (USE_LOCAL_STORAGE || !db) {
+    return { nombreEmpresa: 'AliadoX' };
+  }
+
   try {
     const configRef = collection(db, 'configuracion');
     const snapshot = await getDocs(configRef);
@@ -1198,6 +1428,18 @@ export const getConfiguracionEmpresa = async () => {
 
 // ==================== CIERRES DIARIOS ====================
 export const guardarCierreDiario = async (cierreData) => {
+  if (USE_LOCAL_STORAGE || !db) {
+    const cierres = getLocalData(cierresDiariosCollection);
+    const nuevoCierre = {
+      id: String(Date.now()),
+      ...cierreData,
+      fechaCreacion: new Date().toISOString()
+    };
+    setLocalData(cierresDiariosCollection, [nuevoCierre, ...cierres]);
+    console.log('✅ Cierre diario guardado en localStorage:', nuevoCierre.id);
+    return nuevoCierre.id;
+  }
+
   try {
     const docRef = await addDoc(collection(db, cierresDiariosCollection), {
       ...cierreData,
@@ -1209,5 +1451,31 @@ export const guardarCierreDiario = async (cierreData) => {
     console.error('❌ Error al guardar cierre diario:', error);
     throw error;
   }
+};
+
+export const guardarCierreTurno = async (cierreData) => {
+  const payload = {
+    fecha: cierreData.fecha || new Date().toLocaleDateString('es-ES'),
+    total_pedidos: Number(cierreData.total_pedidos || 0),
+    total_costos_envio: Number(cierreData.total_costos_envio || 0),
+    total_ventas_pesos: Number(cierreData.total_ventas_pesos || 0)
+  };
+
+  if (USE_LOCAL_STORAGE || !db) {
+    const cierres = getLocalData(cierresTurnoCollection);
+    const nuevoCierre = {
+      id: String(Date.now()),
+      ...payload,
+      fechaCreacion: new Date().toISOString()
+    };
+    setLocalData(cierresTurnoCollection, [nuevoCierre, ...cierres]);
+    return nuevoCierre.id;
+  }
+
+  const docRef = await addDoc(collection(db, cierresTurnoCollection), {
+    ...payload,
+    fechaCreacion: Timestamp.now()
+  });
+  return docRef.id;
 };
 

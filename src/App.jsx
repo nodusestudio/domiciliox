@@ -13,7 +13,7 @@ import { verificarConexionFirebase } from './services/firebaseService';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('panel');
+  const [activeSection, setActiveSection] = useState('pedidos');
 
   // Verificar conexión a Firebase al iniciar la app
   useEffect(() => {
@@ -42,9 +42,13 @@ function App() {
       case 'settings':
         return <Settings />;
       default:
-        return <Dashboard />;
+        return <Orders />;
     }
   };
+
+  const navbarSectionTitle = activeSection === 'pedidos'
+    ? 'Despacho Rapido - Gestion de pedidos del dia'
+    : '';
 
   return (
     <div className="flex h-screen bg-dark-bg">
@@ -59,7 +63,7 @@ function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Navbar */}
-        <Navbar toggleSidebar={toggleSidebar} />
+        <Navbar toggleSidebar={toggleSidebar} sectionTitle={navbarSectionTitle} />
 
         {/* Content Area */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

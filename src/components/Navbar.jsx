@@ -1,7 +1,7 @@
 import React from 'react';
 import { Menu } from 'lucide-react';
 
-const Navbar = ({ toggleSidebar }) => {
+const Navbar = ({ toggleSidebar, sectionTitle = '' }) => {
   return (
     <nav className="bg-dark-card border-b border-dark-border px-4 py-3">
       <div className="flex items-center justify-between">
@@ -13,6 +13,11 @@ const Navbar = ({ toggleSidebar }) => {
           >
             <Menu className="w-6 h-6" />
           </button>
+          {sectionTitle && (
+            <p className="text-sm text-gray-300 whitespace-nowrap hidden sm:block">
+              {sectionTitle}
+            </p>
+          )}
         </div>
 
         {/* Right side - Company Name */}

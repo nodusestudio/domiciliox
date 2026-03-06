@@ -219,8 +219,16 @@ export default function Reportes() {
               className="bg-dark-card border border-dark-border rounded-lg overflow-hidden"
             >
               {/* Header de la Jornada */}
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => toggleJornada(jornada.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleJornada(jornada.id);
+                  }
+                }}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-dark-bg transition-colors"
               >
                 <div className="flex items-center gap-4">
@@ -266,7 +274,7 @@ export default function Reportes() {
                     </svg>
                   </div>
                 </div>
-              </button>
+              </div>
 
               {/* Detalle de Pedidos */}
               {jornadaExpandida === jornada.id && (
