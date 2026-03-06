@@ -146,19 +146,17 @@ export const listenPedidosRealtime = (callback) => {
   }
 
   try {
-    const { inicio, fin } = getRangoHoyFirestore();
     const pedidosRef = query(
       collection(db, pedidosCollection),
-      where('fecha', '>=', inicio),
-      where('fecha', '<=', fin),
-      orderBy('fecha', 'desc'),
-      limit(100)
+      where('eliminado', '==', false),
+      where('archivado', '==', false),
+      limit(200)
     );
     return onSnapshot(pedidosRef, (snapshot) => {
       const pedidos = snapshot.docs
       .filter(docSnap => {
         const data = docSnap.data() || {};
-        return !data.eliminado && esFechaDeHoy(data.fecha);
+        return !data.eliminado && !data.archivado && esFechaDeHoy(data.fecha);
       })
       .map(doc => {
         const data = doc.data();
@@ -188,7 +186,8 @@ export const listenPedidosRealtime = (callback) => {
           archivado: Boolean(data.archivado),
           eliminado: Boolean(data.eliminado)
         };
-      });
+      })
+      .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
       callback(pedidos);
     });
   } catch (error) {
@@ -409,21 +408,19 @@ const getPedidosLocal = () => {
 const getPedidosFirebase = async () => {
   return ejecutarConReintentos(async () => {
     console.log("🔄 Obteniendo pedidos desde Firebase...");
-    const { inicio, fin } = getRangoHoyFirestore();
     
     const querySnapshot = await getDocs(
       query(
         collection(db, pedidosCollection),
-        where('fecha', '>=', inicio),
-        where('fecha', '<=', fin),
-        orderBy('fecha', 'desc'),
-        limit(100)
+        where('eliminado', '==', false),
+        where('archivado', '==', false),
+        limit(200)
       )
     );
     const pedidos = querySnapshot.docs
     .filter(docSnap => {
       const data = docSnap.data() || {};
-      return !data.eliminado && esFechaDeHoy(data.fecha);
+      return !data.eliminado && !data.archivado && esFechaDeHoy(data.fecha);
     })
     .map(doc => {
       const data = doc.data();
@@ -446,7 +443,8 @@ const getPedidosFirebase = async () => {
         timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
         eliminado: Boolean(data.eliminado)
       };
-    });
+    })
+    .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
     console.log(`✅ ${pedidos.length} pedidos obtenidos`);
     return pedidos;
@@ -501,6 +499,7 @@ const addPedidoFirebase = async (pedidoData) => {
       repartidor_nombre: pedidoData.repartidor_nombre || 'Sin Asignar',
       estadoPago: pedidoData.estadoPago || '',
       entregado: typeof pedidoData.entregado === 'boolean' ? pedidoData.entregado : null,
+      archivado: false,
       eliminado: false,
       hora: horaPedido,
       fecha: ahora
