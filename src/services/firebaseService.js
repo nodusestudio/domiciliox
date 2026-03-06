@@ -108,7 +108,12 @@ export const listenPedidosRealtime = (callback) => {
   try {
     const pedidosRef = query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30));
     return onSnapshot(pedidosRef, (snapshot) => {
-      const pedidos = snapshot.docs.map(doc => {
+      const pedidos = snapshot.docs
+      .filter(docSnap => {
+        const data = docSnap.data() || {};
+        return !data.eliminado;
+      })
+      .map(doc => {
         const data = doc.data();
         return {
           id: String(doc.id || ''),
@@ -133,7 +138,8 @@ export const listenPedidosRealtime = (callback) => {
           hora_estado_pago: String(data.hora_estado_pago || ''),
           hora_entregado: String(data.hora_entregado || ''),
           timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
-          archivado: Boolean(data.archivado)
+          archivado: Boolean(data.archivado),
+          eliminado: Boolean(data.eliminado)
         };
       });
       callback(pedidos);
@@ -370,7 +376,12 @@ const getPedidosFirebase = async () => {
       const querySnapshot = await getDocs(
         query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
       );
-      const pedidos = querySnapshot.docs.map(doc => {
+      const pedidos = querySnapshot.docs
+      .filter(docSnap => {
+        const data = docSnap.data() || {};
+        return !data.eliminado;
+      })
+      .map(doc => {
         const data = doc.data();
         return {
           id: String(doc.id || ''),
@@ -388,7 +399,8 @@ const getPedidosFirebase = async () => {
           hora_metodo_pago: String(data.hora_metodo_pago || ''),
           hora_estado_pago: String(data.hora_estado_pago || ''),
           hora_entregado: String(data.hora_entregado || ''),
-          timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
+          timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
+          eliminado: Boolean(data.eliminado)
         };
       });
       cache[cacheKey] = { data: pedidos, timestamp: Date.now(), loading: false };
@@ -405,7 +417,12 @@ const getPedidosFirebase = async () => {
     const querySnapshot = await getDocs(
       query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
     );
-    const pedidos = querySnapshot.docs.map(doc => {
+    const pedidos = querySnapshot.docs
+    .filter(docSnap => {
+      const data = docSnap.data() || {};
+      return !data.eliminado;
+    })
+    .map(doc => {
       const data = doc.data();
       return {
         id: String(doc.id || ''),
@@ -423,7 +440,8 @@ const getPedidosFirebase = async () => {
         hora_metodo_pago: String(data.hora_metodo_pago || ''),
         hora_estado_pago: String(data.hora_estado_pago || ''),
         hora_entregado: String(data.hora_entregado || ''),
-        timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString()
+        timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
+        eliminado: Boolean(data.eliminado)
       };
     });
     
@@ -488,6 +506,7 @@ const addPedidoFirebase = async (pedidoData) => {
       repartidor_nombre: pedidoData.repartidor_nombre || 'Sin Asignar',
       estadoPago: pedidoData.estadoPago || '',
       entregado: typeof pedidoData.entregado === 'boolean' ? pedidoData.entregado : null,
+      eliminado: false,
       hora: horaPedido,
       fecha: ahora
     };
@@ -644,8 +663,31 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
       throw new Error(`Pedido no encontrado para eliminar (id: ${id})`);
     }
 
+    let softDeleteOk = false;
     for (const ref of refsToDelete) {
-      await deleteDoc(ref);
+      try {
+        await updateDoc(ref, {
+          eliminado: true,
+          archivado: true,
+          fecha_eliminado: Timestamp.now()
+        });
+        softDeleteOk = true;
+      } catch (error) {
+        console.warn('⚠️ No se pudo marcar eliminado en', ref.path, error);
+      }
+    }
+
+    // Intentar borrado físico sin bloquear la UX si el soft-delete ya fue exitoso.
+    for (const ref of refsToDelete) {
+      try {
+        await deleteDoc(ref);
+      } catch (error) {
+        console.warn('⚠️ No se pudo eliminar físicamente en', ref.path, error);
+      }
+    }
+
+    if (!softDeleteOk) {
+      throw new Error(`No se pudo marcar eliminado el pedido (id: ${id})`);
     }
 
     // Limpiar cachés locales para evitar rehidratación de pedidos eliminados.
