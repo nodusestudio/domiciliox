@@ -47,7 +47,7 @@ function App() {
   };
 
   const navbarSectionTitle = activeSection === 'pedidos'
-    ? 'Despacho Rapido'
+    ? 'Despacho Rápido'
     : '';
 
   return (

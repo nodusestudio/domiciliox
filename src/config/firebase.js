@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, clearIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Variables de entorno esperadas por Firebase
@@ -61,16 +61,5 @@ if (app) {
   console.log("   Auth Domain:", firebaseConfig.authDomain);
 }
 
-export const db = app ? getFirestore(app) : null;
+export const db = app ? initializeFirestore(app, { localCache: memoryLocalCache() }) : null;
 export const auth = app ? getAuth(app) : null;
-
-// Desactivar persistencia local de Firestore para evitar datos obsoletos.
-if (db) {
-  clearIndexedDbPersistence(db)
-    .then(() => {
-      console.log('🧹 Firestore IndexedDB persistence desactivada');
-    })
-    .catch((error) => {
-      console.warn('⚠️ No se pudo limpiar IndexedDB persistence:', error?.message || error);
-    });
-}
