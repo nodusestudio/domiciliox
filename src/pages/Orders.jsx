@@ -185,9 +185,7 @@ const Orders = () => {
         return deduplicarPedidos(mergeados);
       });
     });
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    return () => unsubscribe && unsubscribe();
   }, []);
 
   /**
@@ -620,41 +618,27 @@ const Orders = () => {
   const handleEliminarPedido = async (id) => {
     if (!confirm('¿Eliminar este pedido?')) return;
 
-    let pedidoEliminado = null;
-    let indiceOriginal = -1;
-    setPedidos(prev => {
-      indiceOriginal = prev.findIndex(p => p.id === id);
-      pedidoEliminado = indiceOriginal >= 0 ? prev[indiceOriginal] : null;
-      const updated = prev.filter(p => p.id !== id);
-      localStorage.setItem('pedidos', JSON.stringify(updated));
-      localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
-      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
-      return updated;
-    });
+    const pedidoActual = pedidos.find(p => String(p.id) === String(id));
 
     try {
-      const idFirestore = pedidoEliminado?.firestoreId || pedidoEliminado?.id;
+      const idFirestore = pedidoActual?.firestoreId || pedidoActual?.id;
       if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
-        await deletePedido(String(idFirestore), pedidoEliminado);
+        await deletePedido(String(idFirestore), pedidoActual);
       }
+
+      // Actualizar estado local inmediatamente después de confirmar borrado en nube.
+      setPedidos(prev => {
+        const updated = prev.filter(p => String(p.id) !== String(id));
+        localStorage.setItem('pedidos', JSON.stringify(updated));
+        localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
+        localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
+        return updated;
+      });
+
       toast.success('Pedido eliminado');
     } catch (error) {
       console.error('❌ Error al eliminar pedido en Firebase:', error);
-      // Rollback: restaurar el pedido en su posición original si falla Firebase
-      if (pedidoEliminado) {
-        setPedidos(prev => {
-          const existe = prev.some(p => String(p.id) === String(pedidoEliminado.id));
-          if (existe) return prev;
-          const restored = [...prev];
-          const posicion = indiceOriginal >= 0 && indiceOriginal <= restored.length ? indiceOriginal : 0;
-          restored.splice(posicion, 0, pedidoEliminado);
-          localStorage.setItem('pedidos', JSON.stringify(restored));
-          localStorage.setItem('pedidos_domicilio', JSON.stringify(restored));
-          localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(restored));
-          return restored;
-        });
-      }
-      toast.error('No se pudo eliminar en Firebase. Pedido restaurado.');
+      toast.error('No se pudo eliminar en Firebase.');
     }
   };
 
@@ -1126,6 +1110,9 @@ const Orders = () => {
         .filter(id => !!id);
       if (idsArchivar.length > 0) {
         await batchArchivarPedidos(idsArchivar);
+
+        // Limpieza real en Firebase para que la colección del día quede en cero.
+        await Promise.all(idsArchivar.map((id) => deletePedido(String(id))));
       }
 
         // Limpiar por completo el estado local para arrancar el turno desde cero.

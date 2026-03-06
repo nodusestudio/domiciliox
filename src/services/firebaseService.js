@@ -360,59 +360,8 @@ const getPedidosLocal = () => {
 
 // Versión FIREBASE optimizada con reintentos
 const getPedidosFirebase = async () => {
-  const cacheKey = 'pedidos';
-  
-  if (isCacheFresh(cacheKey)) {
-    console.log('⚡ Pedidos desde caché fresca');
-    return cache[cacheKey].data;
-  }
-  
-  if (isCacheStale(cacheKey) && !cache[cacheKey].loading) {
-    console.log('📦 Pedidos desde caché obsoleta, actualizando en background...');
-    const staleData = cache[cacheKey].data;
-    
-    cache[cacheKey].loading = true;
-    ejecutarConReintentos(async () => {
-      const querySnapshot = await getDocs(
-        query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
-      );
-      const pedidos = querySnapshot.docs
-      .filter(docSnap => {
-        const data = docSnap.data() || {};
-        return !data.eliminado;
-      })
-      .map(doc => {
-        const data = doc.data();
-        return {
-          id: String(doc.id || ''),
-          cliente: String(data.cliente || ''),
-          direccion: String(data.direccion || data.direccion_habitual || data.domicilio || ''),
-          telefono: String(data.telefono || ''),
-          productos_pedido: Array.isArray(data.productos_pedido) ? data.productos_pedido : [],
-          total: Number(data.total) || 0,
-          metodo_pago: data.metodo_pago ? String(data.metodo_pago) : '',
-          repartidor_id: data.repartidor_id ? String(data.repartidor_id) : null,
-          estado: String(data.estado || 'Recibido'),
-          fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
-          hora: String(data.hora || ''),
-          hora_repartidor: String(data.hora_repartidor || ''),
-          hora_metodo_pago: String(data.hora_metodo_pago || ''),
-          hora_estado_pago: String(data.hora_estado_pago || ''),
-          hora_entregado: String(data.hora_entregado || ''),
-          timestamp: data.fecha?.toDate ? data.fecha.toDate().toISOString() : new Date().toISOString(),
-          eliminado: Boolean(data.eliminado)
-        };
-      });
-      cache[cacheKey] = { data: pedidos, timestamp: Date.now(), loading: false };
-      setLocalData('pedidos_domicilio_cache', pedidos);
-    }, 'getPedidos').catch(() => { cache[cacheKey].loading = false; });
-    
-    return staleData;
-  }
-  
   return ejecutarConReintentos(async () => {
     console.log("🔄 Obteniendo pedidos desde Firebase...");
-    cache[cacheKey].loading = true;
     
     const querySnapshot = await getDocs(
       query(collection(db, pedidosCollection), orderBy('fecha', 'desc'), limit(30))
@@ -444,19 +393,11 @@ const getPedidosFirebase = async () => {
         eliminado: Boolean(data.eliminado)
       };
     });
-    
-    cache[cacheKey] = { data: pedidos, timestamp: Date.now(), loading: false };
-    setLocalData('pedidos_domicilio_cache', pedidos);
+
     console.log(`✅ ${pedidos.length} pedidos obtenidos`);
     return pedidos;
   }, 'getPedidos').catch(error => {
-    cache[cacheKey].loading = false;
     console.error('Error al obtener pedidos:', error);
-    const cachedData = getLocalData('pedidos_domicilio_cache');
-    if (cachedData && cachedData.length > 0) {
-      toast.error('Usando datos en caché. Verifica tu conexión.');
-      return cachedData;
-    }
     toast.error('Error al cargar pedidos');
     return [];
   });
