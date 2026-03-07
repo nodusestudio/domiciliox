@@ -140,6 +140,7 @@ const Orders = () => {
   const costoEnvioInputRef = useRef(null);
   const timersDespachoRef = useRef(new Map());
   const pedidosRef = useRef([]);
+  const ALERTA_DESPACHO_MINUTOS = 5;
 
   const normalizarPedidoId = (value) => String(value ?? '').trim();
   const obtenerIdPedido = (pedido = {}) => normalizarPedidoId(pedido.firestoreId || pedido.id);
@@ -169,8 +170,17 @@ const Orders = () => {
       const previo = mapaActuales.get(key);
       if (!previo) return p;
 
+      const mantenerRepartidorPrevio =
+        !p.repartidor_id &&
+        (p.repartidor_nombre === 'Sin Asignar' || !p.repartidor_nombre) &&
+        Boolean(previo.repartidor_id) &&
+        Boolean(p.hora_repartidor) &&
+        String(p.hora_repartidor || '') === String(previo.hora_repartidor || '');
+
       return {
         ...p,
+        repartidor_id: mantenerRepartidorPrevio ? (previo.repartidor_id || null) : (p.repartidor_id || null),
+        repartidor_nombre: mantenerRepartidorPrevio ? (previo.repartidor_nombre || 'Sin Asignar') : (p.repartidor_nombre || 'Sin Asignar'),
         hora_repartidor: p.hora_repartidor || previo.hora_repartidor || '',
         hora_metodo_pago: p.hora_metodo_pago || previo.hora_metodo_pago || '',
         timestamp_repartidor: p.timestamp_repartidor || previo.timestamp_repartidor || ''
@@ -468,7 +478,7 @@ const Orders = () => {
       if (!fechaAsignacion) return;
       if (timersDespachoRef.current.has(pedidoId)) return;
 
-      const tiempoObjetivo = fechaAsignacion.getTime() + (20 * 60 * 1000);
+      const tiempoObjetivo = fechaAsignacion.getTime() + (ALERTA_DESPACHO_MINUTOS * 60 * 1000);
       const delay = Math.max(0, tiempoObjetivo - Date.now());
       programarAlertaDespacho(pedidoId, delay);
     });
@@ -480,7 +490,7 @@ const Orders = () => {
     });
 
     setAlertasDespacho((prev) => prev.filter((item) => idsPendientes.has(item.pedidoId)));
-  }, [pedidos]);
+  }, [pedidos, ALERTA_DESPACHO_MINUTOS]);
 
   useEffect(() => {
     return () => {
