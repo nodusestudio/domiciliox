@@ -594,70 +594,19 @@ const deletePedidoLocal = (id) => {
 // Versión FIREBASE optimizada con reintentos
 const deletePedidoFirebase = async (id, pedidoData = null) => {
   return ejecutarConReintentos(async () => {
-    const refsToDelete = [];
-    const refsSeen = new Set();
-
-    const addRef = (ref) => {
-      if (!ref) return;
-      const key = `${ref.path}`;
-      if (refsSeen.has(key)) return;
-      refsSeen.add(key);
-      refsToDelete.push(ref);
-    };
-
-    const primaryById = doc(db, pedidosCollection, id);
-    const primaryByIdSnap = await getDoc(primaryById);
-    if (primaryByIdSnap.exists()) addRef(primaryById);
-
-    const legacyById = doc(db, legacyPedidosCollection, id);
-    const legacyByIdSnap = await getDoc(legacyById);
-    if (legacyByIdSnap.exists()) addRef(legacyById);
-
-    // Resolver por huella del pedido para borrar cualquier duplicado en ambas colecciones.
-    if (pedidoData && pedidoData.cliente) {
-      const normalizar = (v) => String(v || '').trim().toLowerCase();
-      const dirObjetivo = normalizar(pedidoData.direccion);
-      const telObjetivo = normalizar(pedidoData.telefono);
-      const valorObjetivo = Number(pedidoData.valor_pedido) || 0;
-      const costoObjetivo = Number(pedidoData.costo_envio) || 0;
-
-      const buscarYAgregarCoincidencias = async (collectionName) => {
-        const candidatosSnap = await getDocs(
-          query(
-            collection(db, collectionName),
-            where('cliente', '==', String(pedidoData.cliente || '')),
-            orderBy('fecha', 'desc'),
-            limit(30)
-          )
-        );
-
-        candidatosSnap.docs.forEach((docSnap) => {
-          const d = docSnap.data() || {};
-          const matchFuerte =
-            normalizar(d.direccion || d.direccion_habitual || d.domicilio) === dirObjetivo &&
-            normalizar(d.telefono) === telObjetivo &&
-            (Number(d.valor_pedido) || 0) === valorObjetivo &&
-            (Number(d.costo_envio) || 0) === costoObjetivo;
-
-          const matchBasico =
-            normalizar(d.direccion || d.direccion_habitual || d.domicilio) === dirObjetivo &&
-            normalizar(d.telefono) === telObjetivo;
-
-          if (matchFuerte || matchBasico) {
-            addRef(doc(db, collectionName, docSnap.id));
-          }
-        });
-      };
-
-      await buscarYAgregarCoincidencias(pedidosCollection);
-      await buscarYAgregarCoincidencias(legacyPedidosCollection);
+    const pedidoId = String(id || '').trim();
+    if (!pedidoId) {
+      throw new Error('ID de pedido invalido para eliminar');
     }
 
-    if (refsToDelete.length === 0) {
-      throw new Error(`Pedido no encontrado para eliminar (id: ${id})`);
-    }
+    const refsToDelete = [
+      doc(db, pedidosCollection, pedidoId),
+      doc(db, legacyPedidosCollection, pedidoId)
+    ];
 
     let softDeleteOk = false;
+    let hardDeleteOk = false;
+
     for (const ref of refsToDelete) {
       try {
         await updateDoc(ref, {
@@ -667,46 +616,38 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
         });
         softDeleteOk = true;
       } catch (error) {
-        console.warn('⚠️ No se pudo marcar eliminado en', ref.path, error);
+        // Si el doc no existe o no permite update, seguimos intentando delete directo.
       }
     }
 
-    // Intentar borrado físico sin bloquear la UX si el soft-delete ya fue exitoso.
+    // Borrado físico directo por ID en ambas colecciones.
     for (const ref of refsToDelete) {
       try {
         await deleteDoc(ref);
+        hardDeleteOk = true;
       } catch (error) {
-        console.warn('⚠️ No se pudo eliminar físicamente en', ref.path, error);
+        console.warn('⚠️ No se pudo eliminar físicamente en', ref.path, error?.message || error);
       }
     }
 
     // Compatibilidad solicitada: forzar borrado explícito en colección deliveries con el ID correcto.
-    const pedidoId = String(id || '');
     if (pedidoId) {
       await deleteDoc(doc(db, 'deliveries', pedidoId))
         .then(() => console.log('Eliminado de la nube'))
         .catch(() => {});
     }
 
-    if (!softDeleteOk) {
-      throw new Error(`No se pudo marcar eliminado el pedido (id: ${id})`);
+    if (!softDeleteOk && !hardDeleteOk) {
+      throw new Error(`No se pudo eliminar el pedido (id: ${pedidoId})`);
     }
 
     // Limpiar cachés locales para evitar rehidratación de pedidos eliminados.
     const pedidosLocales = getPedidosLocalData();
-    const idTexto = String(id || '');
+    const idTexto = pedidoId;
     const filtrados = pedidosLocales.filter((p) => {
       const pid = String(p.id || '');
       const fid = String(p.firestoreId || '');
-      const mismoId = pid === idTexto || fid === idTexto;
-      if (mismoId) return false;
-      if (!pedidoData) return true;
-      const mismoCliente = String(p.cliente || '') === String(pedidoData.cliente || '');
-      const mismaDir = String(p.direccion || '') === String(pedidoData.direccion || '');
-      const mismoTel = String(p.telefono || '') === String(pedidoData.telefono || '');
-      const mismoValor = (Number(p.valor_pedido) || 0) === (Number(pedidoData.valor_pedido) || 0);
-      const mismoCosto = (Number(p.costo_envio) || 0) === (Number(pedidoData.costo_envio) || 0);
-      return !(mismoCliente && mismaDir && mismaTel && mismoValor && mismoCosto);
+      return pid !== idTexto && fid !== idTexto;
     });
     setPedidosLocalData(filtrados);
     setLocalData('pedidos_domicilio_cache', filtrados);

@@ -94,10 +94,18 @@ const Orders = () => {
   const valorPedidoInputRef = useRef(null);
   const costoEnvioInputRef = useRef(null);
 
+  const normalizarPedidoId = (value) => String(value ?? '').trim();
+  const obtenerIdPedido = (pedido = {}) => normalizarPedidoId(pedido.firestoreId || pedido.id);
+  const coincidePedidoId = (pedido, id) => {
+    const ref = normalizarPedidoId(id);
+    if (!ref) return false;
+    return normalizarPedidoId(pedido?.id) === ref || normalizarPedidoId(pedido?.firestoreId) === ref;
+  };
+
   const deduplicarPedidos = (items = []) => {
     const vistos = new Set();
     return items.filter((item, idx) => {
-      const clave = String(item.firestoreId || item.id || `${item.cliente || 'pedido'}-${item.timestamp || idx}`);
+      const clave = obtenerIdPedido(item) || `${item.cliente || 'pedido'}-${item.timestamp || idx}`;
       if (vistos.has(clave)) return false;
       vistos.add(clave);
       return true;
@@ -106,11 +114,11 @@ const Orders = () => {
 
   const mergePedidosPreservandoHoras = (actuales = [], entrantes = []) => {
     const mapaActuales = new Map(
-      (actuales || []).map((p) => [String(p.firestoreId || p.id || ''), p])
+      (actuales || []).map((p) => [obtenerIdPedido(p), p])
     );
 
     return (entrantes || []).map((p) => {
-      const key = String(p.firestoreId || p.id || '');
+      const key = obtenerIdPedido(p);
       const previo = mapaActuales.get(key);
       if (!previo) return p;
 
@@ -468,7 +476,7 @@ const Orders = () => {
 
     setPedidos(prev => {
       const updated = prev.map(p => 
-        p.id === pedidoId
+        coincidePedidoId(p, pedidoId)
           ? (() => {
               const cambiado = {
                 ...p,
@@ -507,7 +515,7 @@ const Orders = () => {
 
     setPedidos(prev => {
       const updated = prev.map(p =>
-        p.id === id
+        coincidePedidoId(p, id)
           ? (() => {
               const cambiado = { ...p, metodo_pago: metodoPago, hora_metodo_pago: horaEvento };
               pedidoConCambio = cambiado;
@@ -537,12 +545,12 @@ const Orders = () => {
       return;
     }
     const horaEvento = getHoraAmPmActual();
-    const pedidoAntesCambio = pedidos.find(p => p.id === id);
+    const pedidoAntesCambio = pedidos.find(p => coincidePedidoId(p, id));
     if (!pedidoAntesCambio) return;
 
     setPedidos(prev => {
       const updated = prev.map(p => 
-        p.id === id 
+        coincidePedidoId(p, id)
           ? {
               ...p,
               estadoPago: p.estadoPago === 'pagado' ? 'pendiente' : 'pagado',
@@ -581,14 +589,14 @@ const Orders = () => {
   };
 
   const toggleEntregado = async (id) => {
-    const pedidoActual = pedidos.find(p => p.id === id);
+    const pedidoActual = pedidos.find(p => coincidePedidoId(p, id));
     const estadoActual = pedidoActual?.entregado;
     const nuevoEstadoEntregado = estadoActual === null || typeof estadoActual === 'undefined' ? true : !estadoActual;
     const horaEvento = getHoraAmPmActual();
 
     setPedidos(prev => {
       const updated = prev.map(p => 
-        p.id === id 
+        coincidePedidoId(p, id)
           ? { ...p, entregado: !p.entregado, hora_entregado: horaEvento }
           : p
       );
@@ -618,7 +626,20 @@ const Orders = () => {
   const handleEliminarPedido = async (id) => {
     if (!confirm('¿Eliminar este pedido?')) return;
 
-    const pedidoActual = pedidos.find(p => String(p.id) === String(id));
+    const pedidoActual = pedidos.find(p => coincidePedidoId(p, id));
+    if (!pedidoActual) {
+      toast.error('No se encontro el pedido para eliminar');
+      return;
+    }
+
+    // Eliminar de UI y cache local inmediatamente para feedback rapido.
+    setPedidos(prev => {
+      const updated = prev.filter(p => !coincidePedidoId(p, id));
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
+      return updated;
+    });
 
     try {
       const idFirestore = pedidoActual?.firestoreId || pedidoActual?.id;
@@ -626,19 +647,10 @@ const Orders = () => {
         await deletePedido(String(idFirestore), pedidoActual);
       }
 
-      // Actualizar estado local inmediatamente después de confirmar borrado en nube.
-      setPedidos(prev => {
-        const updated = prev.filter(p => String(p.id) !== String(id));
-        localStorage.setItem('pedidos', JSON.stringify(updated));
-        localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
-        localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
-        return updated;
-      });
-
       toast.success('Pedido eliminado');
     } catch (error) {
       console.error('❌ Error al eliminar pedido en Firebase:', error);
-      toast.error('No se pudo eliminar en Firebase.');
+      toast.error('El pedido se elimino localmente, pero fallo la eliminacion en Firebase.');
     }
   };
 
@@ -649,7 +661,7 @@ const Orders = () => {
 
   const handleCellBlur = async () => {
     if (editingCell.id && editingCell.field) {
-      const pedidoActualizado = pedidos.find(p => p.id === editingCell.id);
+      const pedidoActualizado = pedidos.find(p => coincidePedidoId(p, editingCell.id));
       if (pedidoActualizado) {
         let nuevoValor = editValue;
         
@@ -660,7 +672,7 @@ const Orders = () => {
         
         // Actualizar el pedido
         const pedidosActualizados = pedidos.map(p => {
-          if (p.id === editingCell.id) {
+          if (coincidePedidoId(p, editingCell.id)) {
             const actualizado = { ...p, [editingCell.field]: nuevoValor };
             
             // Recalcular total si se modificó valor_pedido o costo_envio
@@ -1105,9 +1117,13 @@ const Orders = () => {
       localStorage.setItem('historial_jornadas', JSON.stringify(historialActual));
 
       // Marcar pedidos del turno como archivados en Firebase cuando aplique
-      const idsArchivar = pedidosDelDia
-        .map(p => p.firestoreId)
-        .filter(id => !!id);
+      const idsArchivar = Array.from(
+        new Set(
+          pedidosDelDia
+            .map((p) => obtenerIdPedido(p))
+            .filter((id) => Boolean(id) && !id.startsWith('tmp_'))
+        )
+      );
       if (idsArchivar.length > 0) {
         await batchArchivarPedidos(idsArchivar);
 
@@ -1520,7 +1536,7 @@ const Orders = () => {
                     {/* Acciones */}
                     <td className="px-1.5 py-2.5 text-center">
                       <button
-                        onClick={() => handleEliminarPedido(pedido.id)}
+                        onClick={() => handleEliminarPedido(obtenerIdPedido(pedido) || pedido.id)}
                         className="w-7 h-7 inline-flex items-center justify-center rounded text-xs font-bold bg-red-500/20 text-red-500 hover:bg-red-500/30"
                         title="Eliminar"
                       >
@@ -1668,7 +1684,7 @@ const Orders = () => {
                   {pedido.entregado === null || typeof pedido.entregado === 'undefined' ? '-' : pedido.entregado ? 'Si' : 'No'}
                 </button>
                 <button
-                  onClick={() => handleEliminarPedido(pedido.id)}
+                  onClick={() => handleEliminarPedido(obtenerIdPedido(pedido) || pedido.id)}
                   className="px-2 py-1 rounded text-xs font-bold bg-red-500/20 text-red-500 hover:bg-red-500/30"
                   title="Eliminar"
                 >
