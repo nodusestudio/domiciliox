@@ -172,6 +172,30 @@ const Orders = () => {
     });
   };
 
+  const obtenerPedidosCache = () => {
+    try {
+      const rawPedidos = localStorage.getItem('pedidos');
+      if (rawPedidos) {
+        const parsed = JSON.parse(rawPedidos);
+        if (Array.isArray(parsed)) return deduplicarPedidos(parsed);
+      }
+    } catch (error) {
+      console.warn('⚠️ Error al leer cache local de pedidos');
+    }
+
+    try {
+      const rawLegacy = localStorage.getItem('pedidos_domicilio');
+      if (rawLegacy) {
+        const parsedLegacy = JSON.parse(rawLegacy);
+        if (Array.isArray(parsedLegacy)) return deduplicarPedidos(parsedLegacy);
+      }
+    } catch (error) {
+      console.warn('⚠️ Error al leer cache legacy de pedidos');
+    }
+
+    return [];
+  };
+
   const mergePedidosPreservandoHoras = (actuales = [], entrantes = []) => {
     const mapaActuales = new Map(
       (actuales || []).map((p) => [obtenerIdPedido(p), p])
@@ -458,7 +482,11 @@ const Orders = () => {
     // Suscribirse a cambios en pedidos
     const unsubscribe = listenPedidosRealtime((pedidosRealtime) => {
       setPedidos((prev) => {
-        const mergeados = mergePedidosPreservandoHoras(prev, pedidosRealtime);
+        const base = (prev && prev.length > 0) ? prev : obtenerPedidosCache();
+        if ((!pedidosRealtime || pedidosRealtime.length === 0) && base.length > 0) {
+          return deduplicarPedidos(base);
+        }
+        const mergeados = mergePedidosPreservandoHoras(base, pedidosRealtime || []);
         return deduplicarPedidos(mergeados);
       });
     });
@@ -480,6 +508,12 @@ const Orders = () => {
    * - Los pedidos se persisten para evitar pérdida de datos si se recarga la página
    */
   const cargarDatos = async () => {
+    // Hidratar pedidos desde cache local para evitar pantalla vacia al recargar/navegar.
+    const pedidosCache = obtenerPedidosCache();
+    if (pedidosCache.length > 0) {
+      setPedidos((prev) => (prev.length > 0 ? prev : pedidosCache));
+    }
+
     // Cargar clientes desde cache primero
     const clientesCache = localStorage.getItem('clientes_cache');
     if (clientesCache) {
@@ -513,9 +547,6 @@ const Orders = () => {
     localStorage.setItem('clientes_cache', JSON.stringify(clientesCargados || []));
     localStorage.setItem('repartidores_cache', JSON.stringify(repartidoresCargados || []));
     
-    // No hidratar pedidos desde localStorage al abrir para evitar que reaparezcan pedidos viejos.
-    // La fuente de verdad inicial es Firebase realtime (listenPedidosRealtime).
-    setPedidos([]);
     setDatosInicialesCargados(true);
   };
 
@@ -523,6 +554,7 @@ const Orders = () => {
   useEffect(() => {
     if (datosInicialesCargados) {
       localStorage.setItem('pedidos', JSON.stringify(pedidos));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify(pedidos));
     }
   }, [pedidos, datosInicialesCargados]);
 
