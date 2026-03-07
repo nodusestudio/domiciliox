@@ -3,20 +3,12 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-// Desactivar Service Worker y limpiar caches para evitar respuestas obsoletas.
+// Registrar Service Worker sin cache para habilitar notificaciones en segundo plano.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => {
-        registration.unregister();
-      });
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('⚠️ No se pudo registrar el service worker:', error);
     });
-
-    if ('caches' in window) {
-      caches.keys().then((cacheNames) => {
-        cacheNames.forEach((cacheName) => caches.delete(cacheName));
-      });
-    }
   });
 }
 

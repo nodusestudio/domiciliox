@@ -21,6 +21,17 @@ import {
 } from '../services/firebaseService';
 
 const Orders = () => {
+  const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
+  const obtenerMinutosAlertaConfigurados = () => {
+    try {
+      const raw = localStorage.getItem('alerta_pendiente_entrega_minutos');
+      const minutos = Number(raw);
+      return MINUTOS_ALERTA_VALIDOS.includes(minutos) ? minutos : 20;
+    } catch (error) {
+      return 20;
+    }
+  };
+
   const [pedidos, setPedidos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [repartidores, setRepartidores] = useState([]);
@@ -140,7 +151,8 @@ const Orders = () => {
   const costoEnvioInputRef = useRef(null);
   const timersDespachoRef = useRef(new Map());
   const pedidosRef = useRef([]);
-  const ALERTA_DESPACHO_MINUTOS = 5;
+  const alertaAudioRef = useRef(null);
+  const [minutosAlertaPendiente, setMinutosAlertaPendiente] = useState(obtenerMinutosAlertaConfigurados);
 
   const normalizarPedidoId = (value) => String(value ?? '').trim();
   const obtenerIdPedido = (pedido = {}) => normalizarPedidoId(pedido.firestoreId || pedido.id);
@@ -195,6 +207,71 @@ const Orders = () => {
       audio.play().catch(() => console.log('⚠️ Sonido de alerta bloqueado por navegador'));
     } catch (error) {
       console.log('⚠️ No se pudo reproducir alerta de despacho');
+    }
+  };
+
+  const stopPendingDispatchAlarm = () => {
+    const audio = alertaAudioRef.current;
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch (error) {
+      // Evitar errores al pausar en navegadores restrictivos.
+    }
+    alertaAudioRef.current = null;
+  };
+
+  const startPendingDispatchAlarm = () => {
+    if (alertaAudioRef.current) return;
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+      audio.loop = true;
+      audio.volume = 1;
+      alertaAudioRef.current = audio;
+      audio.play().catch(() => {
+        console.log('⚠️ Sonido continuo bloqueado por navegador');
+        alertaAudioRef.current = null;
+      });
+    } catch (error) {
+      alertaAudioRef.current = null;
+      console.log('⚠️ No se pudo iniciar alarma continua de despacho');
+    }
+  };
+
+  const mostrarNotificacionPendienteDespacho = async (pedido) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    try {
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+
+      if (Notification.permission !== 'granted') return;
+
+      const titulo = 'Pedido pendiente por entregar';
+      const mensaje = `${pedido?.cliente || 'Pedido'} con ${pedido?.repartidor_nombre || 'repartidor asignado'}`;
+
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(titulo, {
+          body: mensaje,
+          tag: `alerta-despacho-${obtenerIdPedido(pedido) || Date.now()}`,
+          renotify: true,
+          requireInteraction: true,
+          data: {
+            url: '/'
+          }
+        });
+        return;
+      }
+
+      new Notification(titulo, {
+        body: mensaje,
+        requireInteraction: true
+      });
+    } catch (error) {
+      // Evitar romper UX si el navegador bloquea notificaciones nativas.
     }
   };
 
@@ -311,15 +388,7 @@ const Orders = () => {
     });
 
     playPendingDispatchAlertSound();
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification('Pedido pendiente por despachar', {
-          body: `${pedido.cliente || 'Pedido'} con ${pedido.repartidor_nombre || 'repartidor asignado'}`
-        });
-      } catch (error) {
-        // Evitar romper UX si el navegador bloquea notificaciones nativas.
-      }
-    }
+    mostrarNotificacionPendienteDespacho(pedido);
   };
 
   const programarAlertaDespacho = (pedidoId, delayMs) => {
@@ -337,8 +406,8 @@ const Orders = () => {
   const reprogramarAviso5Min = (pedidoId) => {
     const key = normalizarPedidoId(pedidoId);
     quitarAlertaDespacho(key);
-    programarAlertaDespacho(key, 5 * 60 * 1000);
-    toast.success('Se volvera a avisar en 5 minutos');
+    programarAlertaDespacho(key, minutosAlertaPendiente * 60 * 1000);
+    toast.success(`Se volvera a avisar en ${minutosAlertaPendiente} minutos`);
   };
 
   const confirmarDespachadoDesdeAlerta = async (pedidoId) => {
@@ -462,6 +531,25 @@ const Orders = () => {
   }, [pedidos]);
 
   useEffect(() => {
+    const refrescarMinutosAlerta = () => {
+      setMinutosAlertaPendiente(obtenerMinutosAlertaConfigurados());
+    };
+
+    const onStorage = (event) => {
+      if (event.key === 'alerta_pendiente_entrega_minutos') {
+        refrescarMinutosAlerta();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('app-settings-updated', refrescarMinutosAlerta);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('app-settings-updated', refrescarMinutosAlerta);
+    };
+  }, []);
+
+  useEffect(() => {
     const idsPendientes = new Set();
 
     (pedidos || []).forEach((pedido) => {
@@ -478,7 +566,7 @@ const Orders = () => {
       if (!fechaAsignacion) return;
       if (timersDespachoRef.current.has(pedidoId)) return;
 
-      const tiempoObjetivo = fechaAsignacion.getTime() + (ALERTA_DESPACHO_MINUTOS * 60 * 1000);
+      const tiempoObjetivo = fechaAsignacion.getTime() + (minutosAlertaPendiente * 60 * 1000);
       const delay = Math.max(0, tiempoObjetivo - Date.now());
       programarAlertaDespacho(pedidoId, delay);
     });
@@ -490,14 +578,23 @@ const Orders = () => {
     });
 
     setAlertasDespacho((prev) => prev.filter((item) => idsPendientes.has(item.pedidoId)));
-  }, [pedidos, ALERTA_DESPACHO_MINUTOS]);
+  }, [pedidos, minutosAlertaPendiente]);
 
   useEffect(() => {
     return () => {
       Array.from(timersDespachoRef.current.values()).forEach((timerId) => clearTimeout(timerId));
       timersDespachoRef.current.clear();
+      stopPendingDispatchAlarm();
     };
   }, []);
+
+  useEffect(() => {
+    if (alertasDespacho.length > 0) {
+      startPendingDispatchAlarm();
+      return;
+    }
+    stopPendingDispatchAlarm();
+  }, [alertasDespacho]);
 
   useEffect(() => {
     const consulta = consultaDireccion.trim();
@@ -1521,28 +1618,33 @@ const Orders = () => {
         </div>
 
         {alertasDespacho.length > 0 && (
-          <div className="mt-3 space-y-2">
-            {alertasDespacho.map((alerta) => (
-              <div key={alerta.pedidoId} className="border border-warning/50 bg-warning/10 rounded-lg p-3 sm:p-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="fixed bottom-4 right-4 z-[70] w-[calc(100vw-2rem)] max-w-md space-y-2">
+            {alertasDespacho.map((alerta, idx) => (
+              <div key={alerta.pedidoId} className="border border-warning bg-[#422006] shadow-2xl rounded-lg p-3 sm:p-4">
+                <div className="flex flex-col gap-3">
                   <div>
-                    <p className="text-warning font-semibold text-sm sm:text-base">Pedido pendiente por despachar</p>
-                    <p className="text-gray-200 text-xs sm:text-sm">
+                    <p className="text-warning font-bold text-sm sm:text-base">Alarma de pedido pendiente por entregar</p>
+                    <p className="text-orange-100 text-xs sm:text-sm">
                       Cliente: {alerta.cliente} · Repartidor: {alerta.repartidor}
                     </p>
+                    {idx === 0 && alertasDespacho.length > 1 && (
+                      <p className="text-[11px] sm:text-xs text-orange-200 mt-1">
+                        Hay {alertasDespacho.length} pedidos pendientes de revision
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => reprogramarAviso5Min(alerta.pedidoId)}
                       className="px-3 py-2 rounded-md bg-dark-bg border border-dark-border text-gray-100 text-xs sm:text-sm hover:bg-dark-border transition-colors"
                     >
-                      Avisar en 5 min
+                      Avisar en {minutosAlertaPendiente} min
                     </button>
                     <button
                       onClick={() => confirmarDespachadoDesdeAlerta(alerta.pedidoId)}
                       className="px-3 py-2 rounded-md bg-success text-white text-xs sm:text-sm hover:bg-green-700 transition-colors"
                     >
-                      Ya fue despachado
+                      Revisado / entregado
                     </button>
                   </div>
                 </div>

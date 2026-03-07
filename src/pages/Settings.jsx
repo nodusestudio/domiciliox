@@ -34,6 +34,8 @@ const translations = {
     selectLanguage: 'Seleccionar Idioma',
     spanish: 'Español',
     english: 'Inglés',
+    pendingAlertTimer: 'Alarma pedido pendiente por entregar',
+    pendingAlertHelp: 'Define en cuántos minutos se activa la alarma automática.',
     syncStatus: 'Estado de Sincronización',
     localStorage: 'Almacenamiento Local',
     security: 'Seguridad',
@@ -59,6 +61,8 @@ const translations = {
     selectLanguage: 'Select Language',
     spanish: 'Spanish',
     english: 'English',
+    pendingAlertTimer: 'Pending delivery alarm timer',
+    pendingAlertHelp: 'Define after how many minutes the automatic alarm appears.',
     syncStatus: 'Sync Status',
     localStorage: 'Local Storage',
     security: 'Security',
@@ -70,6 +74,18 @@ const translations = {
 };
 
 const Settings = () => {
+  const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
+
+  const obtenerMinutosAlerta = () => {
+    try {
+      const raw = localStorage.getItem('alerta_pendiente_entrega_minutos');
+      const minutos = Number(raw);
+      return MINUTOS_ALERTA_VALIDOS.includes(minutos) ? minutos : 20;
+    } catch (error) {
+      return 20;
+    }
+  };
+
   // Estado de configuración de empresa
   const [companyData, setCompanyData] = useState({
     nombre: '',
@@ -90,6 +106,7 @@ const Settings = () => {
   // Estado de preferencias de UI
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [currentLanguage, setCurrentLanguage] = useState('es');
+  const [minutosAlertaPendiente, setMinutosAlertaPendiente] = useState(20);
 
   // Estado de sincronización con Firestore
   const [isSyncing, setIsSyncing] = useState(false);
@@ -129,6 +146,8 @@ const Settings = () => {
       if (savedLanguage) {
         setCurrentLanguage(savedLanguage);
       }
+
+      setMinutosAlertaPendiente(obtenerMinutosAlerta());
     } catch (error) {
       console.error('Error al cargar configuración:', error);
       toast.error('Error al cargar la configuración desde Firebase');
@@ -228,6 +247,16 @@ const Settings = () => {
     setCurrentLanguage(newLanguage);
     localStorage.setItem('language', newLanguage);
     toast.success(translations[newLanguage].saved);
+  };
+
+  const handlePendingAlertMinutesChange = (e) => {
+    const minutos = Number(e.target.value);
+    if (!MINUTOS_ALERTA_VALIDOS.includes(minutos)) return;
+
+    setMinutosAlertaPendiente(minutos);
+    localStorage.setItem('alerta_pendiente_entrega_minutos', String(minutos));
+    window.dispatchEvent(new Event('app-settings-updated'));
+    toast.success(`Alarma configurada a ${minutos} minutos`);
   };
 
   const t = translations[currentLanguage];
@@ -428,6 +457,21 @@ const Settings = () => {
                   <option value="es">{t.spanish}</option>
                   <option value="en">{t.english}</option>
                 </select>
+              </div>
+
+              {/* Temporizador de alarma de pedido pendiente */}
+              <div>
+                <p className="text-xs sm:text-sm text-gray-400 mb-3">{t.pendingAlertTimer}</p>
+                <select
+                  value={minutosAlertaPendiente}
+                  onChange={handlePendingAlertMinutesChange}
+                  className="w-full px-4 py-3 bg-[#374151] border border-gray-600 rounded-xl text-white focus:ring-2 focus:ring-primary focus:border-transparent transition-all cursor-pointer text-sm sm:text-base shadow-sm touch-manipulation h-12"
+                >
+                  {MINUTOS_ALERTA_VALIDOS.map((min) => (
+                    <option key={min} value={min}>{min} min</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-2">{t.pendingAlertHelp}</p>
               </div>
             </div>
           </div>
