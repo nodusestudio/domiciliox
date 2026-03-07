@@ -31,7 +31,7 @@ const Orders = () => {
   const playSuccessSound = () => {
     try {
       const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
-      audio.volume = 0.5;
+      audio.volume = 1;
       audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
     } catch (error) {
       console.log('⚠️ No se pudo reproducir sonido');
@@ -42,7 +42,7 @@ const Orders = () => {
   const playPaymentSound = () => {
     try {
       const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3');
-      audio.volume = 0.5;
+      audio.volume = 1;
       audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
     } catch (error) {
       console.log('⚠️ No se pudo reproducir sonido');
@@ -53,10 +53,54 @@ const Orders = () => {
   const playDeliverySound = () => {
     try {
       const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1555/1555-preview.mp3');
-      audio.volume = 0.45;
+      audio.volume = 1;
       audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
     } catch (error) {
       console.log('⚠️ No se pudo reproducir sonido de entrega');
+    }
+  };
+
+  // Voz al asignar repartidor desde el selector.
+  const anunciarDomicilioSolicitado = () => {
+    try {
+      if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+      const synth = window.speechSynthesis;
+
+      const hablar = () => {
+        const utterance = new SpeechSynthesisUtterance('domicilio solicitado');
+        const voces = synth.getVoices();
+        const vozPreferida =
+          voces.find((v) => /es-(CO|ES|MX)/i.test(String(v.lang || ''))) ||
+          voces.find((v) => String(v.lang || '').toLowerCase().startsWith('es')) ||
+          null;
+
+        if (vozPreferida) utterance.voice = vozPreferida;
+        utterance.lang = 'es-CO';
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.volume = 1;
+
+        synth.cancel();
+        synth.speak(utterance);
+      };
+
+      if (synth.getVoices().length === 0) {
+        const onVoicesChanged = () => {
+          synth.removeEventListener('voiceschanged', onVoicesChanged);
+          hablar();
+        };
+        synth.addEventListener('voiceschanged', onVoicesChanged);
+        setTimeout(() => {
+          synth.removeEventListener('voiceschanged', onVoicesChanged);
+          hablar();
+        }, 300);
+        return;
+      }
+
+      hablar();
+    } catch (error) {
+      console.warn('⚠️ No se pudo reproducir voz de asignacion');
     }
   };
   
@@ -91,8 +135,11 @@ const Orders = () => {
     direccion_habitual: '',
     telefono: ''
   });
+  const [alertasDespacho, setAlertasDespacho] = useState([]);
   const valorPedidoInputRef = useRef(null);
   const costoEnvioInputRef = useRef(null);
+  const timersDespachoRef = useRef(new Map());
+  const pedidosRef = useRef([]);
 
   const normalizarPedidoId = (value) => String(value ?? '').trim();
   const obtenerIdPedido = (pedido = {}) => normalizarPedidoId(pedido.firestoreId || pedido.id);
@@ -125,9 +172,20 @@ const Orders = () => {
       return {
         ...p,
         hora_repartidor: p.hora_repartidor || previo.hora_repartidor || '',
-        hora_metodo_pago: p.hora_metodo_pago || previo.hora_metodo_pago || ''
+        hora_metodo_pago: p.hora_metodo_pago || previo.hora_metodo_pago || '',
+        timestamp_repartidor: p.timestamp_repartidor || previo.timestamp_repartidor || ''
       };
     });
+  };
+
+  const playPendingDispatchAlertSound = () => {
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+      audio.volume = 1;
+      audio.play().catch(() => console.log('⚠️ Sonido de alerta bloqueado por navegador'));
+    } catch (error) {
+      console.log('⚠️ No se pudo reproducir alerta de despacho');
+    }
   };
 
   const getHoraAmPmActual = () => {
@@ -180,6 +238,138 @@ const Orders = () => {
     texto = texto.replace(/[^0-9.-]/g, '');
     const numero = Number(texto);
     return Number.isFinite(numero) ? numero : NaN;
+  };
+
+  const limpiarTimerDespacho = (pedidoId) => {
+    const key = normalizarPedidoId(pedidoId);
+    const timer = timersDespachoRef.current.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      timersDespachoRef.current.delete(key);
+    }
+  };
+
+  const quitarAlertaDespacho = (pedidoId) => {
+    const key = normalizarPedidoId(pedidoId);
+    setAlertasDespacho((prev) => prev.filter((item) => item.pedidoId !== key));
+  };
+
+  const esPedidoPendienteDespacho = (pedido) => {
+    return Boolean(pedido?.repartidor_id) && !Boolean(pedido?.entregado);
+  };
+
+  const parseHoraAsignacionHoy = (hora) => {
+    const valor = String(hora || '').trim();
+    if (!valor) return null;
+    const withMeridiem = valor.match(/^(\d{1,2}):(\d{2})\s*([aApP][mM])$/);
+    if (!withMeridiem) return null;
+    let hour = Number(withMeridiem[1]);
+    const minute = Number(withMeridiem[2]);
+    const meridiem = withMeridiem[3].toLowerCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    const fecha = new Date();
+    fecha.setHours(hour, minute, 0, 0);
+    return fecha;
+  };
+
+  const obtenerFechaAsignacion = (pedido) => {
+    if (pedido?.timestamp_repartidor) {
+      const fecha = new Date(pedido.timestamp_repartidor);
+      if (!Number.isNaN(fecha.getTime())) return fecha;
+    }
+    return parseHoraAsignacionHoy(pedido?.hora_repartidor);
+  };
+
+  const abrirAlertaPendienteDespacho = (pedidoId) => {
+    const key = normalizarPedidoId(pedidoId);
+    if (!key) return;
+    const pedido = pedidosRef.current.find((p) => coincidePedidoId(p, key));
+    if (!pedido || !esPedidoPendienteDespacho(pedido)) return;
+
+    setAlertasDespacho((prev) => {
+      if (prev.some((item) => item.pedidoId === key)) return prev;
+      return [
+        {
+          pedidoId: key,
+          cliente: pedido.cliente || 'Cliente sin nombre',
+          repartidor: pedido.repartidor_nombre || 'Sin Asignar'
+        },
+        ...prev
+      ];
+    });
+
+    playPendingDispatchAlertSound();
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('Pedido pendiente por despachar', {
+          body: `${pedido.cliente || 'Pedido'} con ${pedido.repartidor_nombre || 'repartidor asignado'}`
+        });
+      } catch (error) {
+        // Evitar romper UX si el navegador bloquea notificaciones nativas.
+      }
+    }
+  };
+
+  const programarAlertaDespacho = (pedidoId, delayMs) => {
+    const key = normalizarPedidoId(pedidoId);
+    if (!key) return;
+    limpiarTimerDespacho(key);
+    const delay = Math.max(0, Number(delayMs) || 0);
+    const timerId = setTimeout(() => {
+      timersDespachoRef.current.delete(key);
+      abrirAlertaPendienteDespacho(key);
+    }, delay);
+    timersDespachoRef.current.set(key, timerId);
+  };
+
+  const reprogramarAviso5Min = (pedidoId) => {
+    const key = normalizarPedidoId(pedidoId);
+    quitarAlertaDespacho(key);
+    programarAlertaDespacho(key, 5 * 60 * 1000);
+    toast.success('Se volvera a avisar en 5 minutos');
+  };
+
+  const confirmarDespachadoDesdeAlerta = async (pedidoId) => {
+    const key = normalizarPedidoId(pedidoId);
+    const horaEvento = getHoraAmPmActual();
+    const timestampEntregado = new Date().toISOString();
+    let pedidoConCambio = null;
+
+    setPedidos((prev) => {
+      const updated = prev.map((p) => {
+        if (!coincidePedidoId(p, key)) return p;
+        const cambiado = {
+          ...p,
+          entregado: true,
+          hora_entregado: horaEvento,
+          timestamp_entregado: timestampEntregado
+        };
+        pedidoConCambio = cambiado;
+        return cambiado;
+      });
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      return updated;
+    });
+
+    quitarAlertaDespacho(key);
+    limpiarTimerDespacho(key);
+
+    try {
+      const idFirestore = pedidoConCambio?.firestoreId || pedidoConCambio?.id;
+      if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
+        await updatePedido(String(idFirestore), {
+          entregado: true,
+          hora_entregado: horaEvento,
+          timestamp_entregado: timestampEntregado
+        });
+      }
+      toast.success('Pedido confirmado como despachado');
+    } catch (error) {
+      console.error('❌ Error al confirmar despacho desde alerta:', error);
+      toast.error('Se marco localmente, pero no se pudo sincronizar en Firebase');
+    }
   };
 
 
@@ -256,6 +446,48 @@ const Orders = () => {
       localStorage.setItem('pedidos', JSON.stringify(pedidos));
     }
   }, [pedidos, datosInicialesCargados]);
+
+  useEffect(() => {
+    pedidosRef.current = pedidos;
+  }, [pedidos]);
+
+  useEffect(() => {
+    const idsPendientes = new Set();
+
+    (pedidos || []).forEach((pedido) => {
+      const pedidoId = obtenerIdPedido(pedido);
+      if (!pedidoId) return;
+
+      if (!esPedidoPendienteDespacho(pedido)) {
+        limpiarTimerDespacho(pedidoId);
+        return;
+      }
+
+      idsPendientes.add(pedidoId);
+      const fechaAsignacion = obtenerFechaAsignacion(pedido);
+      if (!fechaAsignacion) return;
+      if (timersDespachoRef.current.has(pedidoId)) return;
+
+      const tiempoObjetivo = fechaAsignacion.getTime() + (20 * 60 * 1000);
+      const delay = Math.max(0, tiempoObjetivo - Date.now());
+      programarAlertaDespacho(pedidoId, delay);
+    });
+
+    Array.from(timersDespachoRef.current.keys()).forEach((pedidoId) => {
+      if (!idsPendientes.has(pedidoId)) {
+        limpiarTimerDespacho(pedidoId);
+      }
+    });
+
+    setAlertasDespacho((prev) => prev.filter((item) => idsPendientes.has(item.pedidoId)));
+  }, [pedidos]);
+
+  useEffect(() => {
+    return () => {
+      Array.from(timersDespachoRef.current.values()).forEach((timerId) => clearTimeout(timerId));
+      timersDespachoRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     const consulta = consultaDireccion.trim();
@@ -472,7 +704,18 @@ const Orders = () => {
   const handleAsignarRepartidor = async (pedidoId, repartidorId) => {
     const repartidor = repartidores.find(r => r.id === repartidorId);
     const horaEvento = getHoraAmPmActual();
+    const timestampEvento = new Date().toISOString();
     let pedidoConCambio = null;
+    const pedidoActual = pedidos.find((p) => coincidePedidoId(p, pedidoId));
+    const repartidorAnterior = pedidoActual?.repartidor_id || '';
+    const debeAnunciar = Boolean(repartidorId) && String(repartidorAnterior) !== String(repartidorId);
+    const cambioAsignacion = String(repartidorAnterior) !== String(repartidorId || '');
+    const idNormalizado = normalizarPedidoId(pedidoId);
+
+    if (cambioAsignacion) {
+      limpiarTimerDespacho(idNormalizado);
+      quitarAlertaDespacho(idNormalizado);
+    }
 
     setPedidos(prev => {
       const updated = prev.map(p => 
@@ -482,7 +725,8 @@ const Orders = () => {
                 ...p,
                 repartidor_id: repartidorId || null,
                 repartidor_nombre: repartidor ? repartidor.nombre : 'Sin Asignar',
-                hora_repartidor: horaEvento
+                hora_repartidor: horaEvento,
+                timestamp_repartidor: repartidorId ? timestampEvento : ''
               };
               pedidoConCambio = cambiado;
               return cambiado;
@@ -493,13 +737,18 @@ const Orders = () => {
       return updated;
     });
 
+    if (debeAnunciar) {
+      anunciarDomicilioSolicitado();
+    }
+
     try {
       const idFirestore = pedidoConCambio?.firestoreId || pedidoConCambio?.id;
       if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
         await updatePedido(String(idFirestore), {
           repartidor_id: repartidorId || null,
           repartidor_nombre: repartidor ? repartidor.nombre : 'Sin Asignar',
-          hora_repartidor: horaEvento
+          hora_repartidor: horaEvento,
+          timestamp_repartidor: repartidorId ? timestampEvento : ''
         });
       }
       toast.success('Repartidor asignado');
@@ -1260,6 +1509,37 @@ const Orders = () => {
           )}
           {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && !sugerenciaCosto && 'Sin coincidencias en historial.'}
         </div>
+
+        {alertasDespacho.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {alertasDespacho.map((alerta) => (
+              <div key={alerta.pedidoId} className="border border-warning/50 bg-warning/10 rounded-lg p-3 sm:p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <p className="text-warning font-semibold text-sm sm:text-base">Pedido pendiente por despachar</p>
+                    <p className="text-gray-200 text-xs sm:text-sm">
+                      Cliente: {alerta.cliente} · Repartidor: {alerta.repartidor}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => reprogramarAviso5Min(alerta.pedidoId)}
+                      className="px-3 py-2 rounded-md bg-dark-bg border border-dark-border text-gray-100 text-xs sm:text-sm hover:bg-dark-border transition-colors"
+                    >
+                      Avisar en 5 min
+                    </button>
+                    <button
+                      onClick={() => confirmarDespachadoDesdeAlerta(alerta.pedidoId)}
+                      className="px-3 py-2 rounded-md bg-success text-white text-xs sm:text-sm hover:bg-green-700 transition-colors"
+                    >
+                      Ya fue despachado
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Buscador con Auto-Insert */}
@@ -1486,7 +1766,7 @@ const Orders = () => {
                     <td className="px-1.5 py-2.5 text-center">
                       <select
                         value={pedido.repartidor_id || ''}
-                        onChange={(e) => handleAsignarRepartidor(pedido.id, e.target.value)}
+                        onChange={(e) => handleAsignarRepartidor(obtenerIdPedido(pedido) || pedido.id, e.target.value)}
                         className="w-[108px] px-1 py-1 bg-[#374151] border border-dark-border rounded text-white text-[11px] focus:ring-2 focus:ring-primary focus:border-transparent"
                       >
                         <option value="">-</option>
@@ -1642,7 +1922,7 @@ const Orders = () => {
                 <div>
                   <select
                     value={pedido.repartidor_id || ''}
-                    onChange={(e) => handleAsignarRepartidor(pedido.id, e.target.value)}
+                    onChange={(e) => handleAsignarRepartidor(obtenerIdPedido(pedido) || pedido.id, e.target.value)}
                     className="w-full text-xs bg-[#374151] border border-dark-border rounded px-2 py-1 text-gray-200"
                   >
                     <option value="">-</option>

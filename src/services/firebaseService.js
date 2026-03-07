@@ -179,6 +179,7 @@ export const listenPedidosRealtime = (callback) => {
           fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
           hora: String(data.hora || ''),
           hora_repartidor: String(data.hora_repartidor || ''),
+          timestamp_repartidor: String(data.timestamp_repartidor || ''),
           hora_metodo_pago: String(data.hora_metodo_pago || ''),
           hora_estado_pago: String(data.hora_estado_pago || ''),
           hora_entregado: String(data.hora_entregado || ''),
@@ -437,6 +438,7 @@ const getPedidosFirebase = async () => {
         fecha: data.fecha?.toDate ? data.fecha.toDate().toLocaleDateString('es-ES') : String(data.fecha || 'N/A'),
         hora: String(data.hora || ''),
         hora_repartidor: String(data.hora_repartidor || ''),
+        timestamp_repartidor: String(data.timestamp_repartidor || ''),
         hora_metodo_pago: String(data.hora_metodo_pago || ''),
         hora_estado_pago: String(data.hora_estado_pago || ''),
         hora_entregado: String(data.hora_entregado || ''),
@@ -599,10 +601,17 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
       throw new Error('ID de pedido invalido para eliminar');
     }
 
-    const refsToDelete = [
+    const refPrincipal = await getPedidoDocRefConFallback(pedidoId);
+    const refsCandidatas = [
+      refPrincipal,
       doc(db, pedidosCollection, pedidoId),
       doc(db, legacyPedidosCollection, pedidoId)
     ];
+    const refsToDelete = refsCandidatas.filter((ref, index, arr) => {
+      const path = ref?.path;
+      if (!path) return false;
+      return arr.findIndex((r) => r?.path === path) === index;
+    });
 
     let softDeleteOk = false;
     let hardDeleteOk = false;
@@ -616,7 +625,7 @@ const deletePedidoFirebase = async (id, pedidoData = null) => {
         });
         softDeleteOk = true;
       } catch (error) {
-        // Si el doc no existe o no permite update, seguimos intentando delete directo.
+        console.warn('⚠️ No se pudo marcar eliminado en', ref.path, error?.message || error);
       }
     }
 
