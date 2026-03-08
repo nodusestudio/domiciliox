@@ -22,6 +22,44 @@ import {
 
 const Orders = () => {
   const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
+  const SOUND_DEFAULTS = {
+    newOrder: { enabled: true, volume: 100 },
+    payment: { enabled: true, volume: 100 },
+    delivery: { enabled: true, volume: 100 },
+    pendingDispatchAlert: { enabled: true, volume: 100 },
+    pendingDispatchAlarm: { enabled: true, volume: 100 },
+    dispatcherVoice: { enabled: true, volume: 100 }
+  };
+  const SOUND_KEYS = Object.keys(SOUND_DEFAULTS);
+
+  const clampVolumePercent = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 100;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  };
+
+  const normalizarSoundSettings = (candidate = {}) => {
+    return SOUND_KEYS.reduce((acc, key) => {
+      const current = candidate?.[key] || {};
+      acc[key] = {
+        enabled: typeof current.enabled === 'boolean' ? current.enabled : SOUND_DEFAULTS[key].enabled,
+        volume: clampVolumePercent(current.volume ?? SOUND_DEFAULTS[key].volume)
+      };
+      return acc;
+    }, {});
+  };
+
+  const obtenerSoundSettingsConfigurados = () => {
+    try {
+      const raw = localStorage.getItem('app_sound_settings');
+      if (!raw) return SOUND_DEFAULTS;
+      const parsed = JSON.parse(raw);
+      return normalizarSoundSettings(parsed);
+    } catch (error) {
+      return SOUND_DEFAULTS;
+    }
+  };
+
   const obtenerMinutosAlertaConfigurados = () => {
     try {
       const raw = localStorage.getItem('alerta_pendiente_entrega_minutos');
@@ -37,44 +75,60 @@ const Orders = () => {
   const [repartidores, setRepartidores] = useState([]);
   const [historialCostos, setHistorialCostos] = useState({});
   const [datosInicialesCargados, setDatosInicialesCargados] = useState(false);
+  const [soundSettings, setSoundSettings] = useState(obtenerSoundSettingsConfigurados);
+
+  const getSoundConfig = (key) => {
+    return soundSettings?.[key] || SOUND_DEFAULTS[key];
+  };
+
+  const playConfiguredSound = (url, soundKey, blockedLog, errorLog) => {
+    try {
+      const config = getSoundConfig(soundKey);
+      if (!config?.enabled) return;
+      const audio = new Audio(url);
+      audio.volume = clampVolumePercent(config.volume) / 100;
+      audio.play().catch(() => console.log(blockedLog));
+    } catch (error) {
+      console.log(errorLog);
+    }
+  };
   
   // Función para reproducir sonido de nuevo pedido (campana)
   const playSuccessSound = () => {
-    try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
-      audio.volume = 1;
-      audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
-    } catch (error) {
-      console.log('⚠️ No se pudo reproducir sonido');
-    }
+    playConfiguredSound(
+      'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',
+      'newOrder',
+      '⚠️ Sonido bloqueado por navegador',
+      '⚠️ No se pudo reproducir sonido'
+    );
   };
   
   // Función para reproducir sonido de pago (caja registradora)
   const playPaymentSound = () => {
-    try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3');
-      audio.volume = 1;
-      audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
-    } catch (error) {
-      console.log('⚠️ No se pudo reproducir sonido');
-    }
+    playConfiguredSound(
+      'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3',
+      'payment',
+      '⚠️ Sonido bloqueado por navegador',
+      '⚠️ No se pudo reproducir sonido'
+    );
   };
 
   // Sonido de arranque de moto al marcar un pedido como entregado
   const playDeliverySound = () => {
-    try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1555/1555-preview.mp3');
-      audio.volume = 1;
-      audio.play().catch(err => console.log('⚠️ Sonido bloqueado por navegador'));
-    } catch (error) {
-      console.log('⚠️ No se pudo reproducir sonido de entrega');
-    }
+    playConfiguredSound(
+      'https://assets.mixkit.co/active_storage/sfx/1555/1555-preview.mp3',
+      'delivery',
+      '⚠️ Sonido bloqueado por navegador',
+      '⚠️ No se pudo reproducir sonido de entrega'
+    );
   };
 
   // Voz al asignar repartidor desde el selector.
   const anunciarDomicilioSolicitado = () => {
     try {
       if (typeof window === 'undefined' || !window.speechSynthesis) return;
+      const voiceConfig = getSoundConfig('dispatcherVoice');
+      if (!voiceConfig?.enabled) return;
 
       const synth = window.speechSynthesis;
 
@@ -90,7 +144,7 @@ const Orders = () => {
         utterance.lang = 'es-CO';
         utterance.rate = 1;
         utterance.pitch = 1;
-        utterance.volume = 1;
+        utterance.volume = clampVolumePercent(voiceConfig.volume) / 100;
 
         synth.cancel();
         synth.speak(utterance);
@@ -225,13 +279,12 @@ const Orders = () => {
   };
 
   const playPendingDispatchAlertSound = () => {
-    try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-      audio.volume = 1;
-      audio.play().catch(() => console.log('⚠️ Sonido de alerta bloqueado por navegador'));
-    } catch (error) {
-      console.log('⚠️ No se pudo reproducir alerta de despacho');
-    }
+    playConfiguredSound(
+      'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+      'pendingDispatchAlert',
+      '⚠️ Sonido de alerta bloqueado por navegador',
+      '⚠️ No se pudo reproducir alerta de despacho'
+    );
   };
 
   const stopPendingDispatchAlarm = () => {
@@ -248,10 +301,12 @@ const Orders = () => {
 
   const startPendingDispatchAlarm = () => {
     if (alertaAudioRef.current) return;
+    const alarmConfig = getSoundConfig('pendingDispatchAlarm');
+    if (!alarmConfig?.enabled) return;
     try {
       const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
       audio.loop = true;
-      audio.volume = 1;
+      audio.volume = clampVolumePercent(alarmConfig.volume) / 100;
       alertaAudioRef.current = audio;
       audio.play().catch(() => {
         console.log('⚠️ Sonido continuo bloqueado por navegador');
@@ -563,21 +618,22 @@ const Orders = () => {
   }, [pedidos]);
 
   useEffect(() => {
-    const refrescarMinutosAlerta = () => {
+    const refrescarDesdeSettings = () => {
       setMinutosAlertaPendiente(obtenerMinutosAlertaConfigurados());
+      setSoundSettings(obtenerSoundSettingsConfigurados());
     };
 
     const onStorage = (event) => {
-      if (event.key === 'alerta_pendiente_entrega_minutos') {
-        refrescarMinutosAlerta();
+      if (event.key === 'alerta_pendiente_entrega_minutos' || event.key === 'app_sound_settings') {
+        refrescarDesdeSettings();
       }
     };
 
     window.addEventListener('storage', onStorage);
-    window.addEventListener('app-settings-updated', refrescarMinutosAlerta);
+    window.addEventListener('app-settings-updated', refrescarDesdeSettings);
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('app-settings-updated', refrescarMinutosAlerta);
+      window.removeEventListener('app-settings-updated', refrescarDesdeSettings);
     };
   }, []);
 
@@ -627,6 +683,20 @@ const Orders = () => {
     }
     stopPendingDispatchAlarm();
   }, [alertasDespacho]);
+
+  useEffect(() => {
+    const alarmConfig = getSoundConfig('pendingDispatchAlarm');
+    const activeAlarm = alertaAudioRef.current;
+
+    if (!alarmConfig?.enabled && activeAlarm) {
+      stopPendingDispatchAlarm();
+      return;
+    }
+
+    if (alarmConfig?.enabled && activeAlarm) {
+      activeAlarm.volume = clampVolumePercent(alarmConfig.volume) / 100;
+    }
+  }, [soundSettings]);
 
   useEffect(() => {
     const consulta = consultaDireccion.trim();

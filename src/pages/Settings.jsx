@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Save, Building2, Phone, MapPin, Edit2, Sun, Moon, Globe, Shield, Database, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Save, Building2, Phone, MapPin, Edit2, Sun, Moon, Globe, Shield, Database, X, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../firebase/config';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
@@ -36,6 +36,19 @@ const translations = {
     english: 'Inglés',
     pendingAlertTimer: 'Alarma pedido pendiente por entregar',
     pendingAlertHelp: 'Define en cuántos minutos se activa la alarma automática.',
+    sounds: 'Sonidos',
+    soundsHelp: 'Activa o desactiva cada sonido y ajusta su volumen.',
+    soundNewOrder: 'Nuevo pedido',
+    soundPayment: 'Pago confirmado',
+    soundDelivery: 'Pedido entregado',
+    soundPendingAlert: 'Aviso pendiente por entregar',
+    soundPendingAlarm: 'Alarma continua pendiente por entregar',
+    soundDispatcherVoice: 'Voz al asignar repartidor',
+    enabled: 'Activo',
+    volume: 'Volumen',
+    preview: 'Probar',
+    enableToPreview: 'Activa este sonido para probarlo',
+    previewBlocked: 'Tu navegador bloqueó la reproducción de audio',
     syncStatus: 'Estado de Sincronización',
     localStorage: 'Almacenamiento Local',
     security: 'Seguridad',
@@ -63,6 +76,19 @@ const translations = {
     english: 'English',
     pendingAlertTimer: 'Pending delivery alarm timer',
     pendingAlertHelp: 'Define after how many minutes the automatic alarm appears.',
+    sounds: 'Sounds',
+    soundsHelp: 'Enable or disable each sound and set its volume.',
+    soundNewOrder: 'New order',
+    soundPayment: 'Payment confirmed',
+    soundDelivery: 'Order delivered',
+    soundPendingAlert: 'Pending delivery reminder',
+    soundPendingAlarm: 'Continuous pending delivery alarm',
+    soundDispatcherVoice: 'Voice when assigning courier',
+    enabled: 'Enabled',
+    volume: 'Volume',
+    preview: 'Preview',
+    enableToPreview: 'Enable this sound to preview it',
+    previewBlocked: 'Your browser blocked audio playback',
     syncStatus: 'Sync Status',
     localStorage: 'Local Storage',
     security: 'Security',
@@ -75,6 +101,46 @@ const translations = {
 
 const Settings = () => {
   const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
+  const SOUND_SETTING_KEYS = [
+    'newOrder',
+    'payment',
+    'delivery',
+    'pendingDispatchAlert',
+    'pendingDispatchAlarm',
+    'dispatcherVoice'
+  ];
+  const DEFAULT_SOUND_SETTINGS = {
+    newOrder: { enabled: true, volume: 100 },
+    payment: { enabled: true, volume: 100 },
+    delivery: { enabled: true, volume: 100 },
+    pendingDispatchAlert: { enabled: true, volume: 100 },
+    pendingDispatchAlarm: { enabled: true, volume: 100 },
+    dispatcherVoice: { enabled: true, volume: 100 }
+  };
+  const SOUND_PREVIEW_URLS = {
+    newOrder: 'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3',
+    payment: 'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3',
+    delivery: 'https://assets.mixkit.co/active_storage/sfx/1555/1555-preview.mp3',
+    pendingDispatchAlert: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+    pendingDispatchAlarm: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'
+  };
+
+  const clampVolume = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 100;
+    return Math.min(100, Math.max(0, Math.round(num)));
+  };
+
+  const normalizarSoundSettings = (candidate = {}) => {
+    return SOUND_SETTING_KEYS.reduce((acc, key) => {
+      const entry = candidate?.[key] || {};
+      acc[key] = {
+        enabled: typeof entry.enabled === 'boolean' ? entry.enabled : DEFAULT_SOUND_SETTINGS[key].enabled,
+        volume: clampVolume(entry.volume ?? DEFAULT_SOUND_SETTINGS[key].volume)
+      };
+      return acc;
+    }, {});
+  };
 
   const obtenerMinutosAlerta = () => {
     try {
@@ -107,6 +173,8 @@ const Settings = () => {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [currentLanguage, setCurrentLanguage] = useState('es');
   const [minutosAlertaPendiente, setMinutosAlertaPendiente] = useState(20);
+  const [soundSettings, setSoundSettings] = useState(DEFAULT_SOUND_SETTINGS);
+  const previewAudioRef = useRef(null);
 
   // Estado de sincronización con Firestore
   const [isSyncing, setIsSyncing] = useState(false);
@@ -115,6 +183,23 @@ const Settings = () => {
   // Cargar configuración al montar el componente
   useEffect(() => {
     loadSettings();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        try {
+          previewAudioRef.current.pause();
+          previewAudioRef.current.currentTime = 0;
+        } catch (error) {
+          // Evitar errores al desmontar en navegadores restrictivos.
+        }
+        previewAudioRef.current = null;
+      }
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, []);
 
   /**
@@ -148,6 +233,18 @@ const Settings = () => {
       }
 
       setMinutosAlertaPendiente(obtenerMinutosAlerta());
+
+      const rawSoundSettings = localStorage.getItem('app_sound_settings');
+      if (rawSoundSettings) {
+        try {
+          const parsed = JSON.parse(rawSoundSettings);
+          setSoundSettings(normalizarSoundSettings(parsed));
+        } catch (error) {
+          setSoundSettings(DEFAULT_SOUND_SETTINGS);
+        }
+      } else {
+        setSoundSettings(DEFAULT_SOUND_SETTINGS);
+      }
     } catch (error) {
       console.error('Error al cargar configuración:', error);
       toast.error('Error al cargar la configuración desde Firebase');
@@ -259,7 +356,129 @@ const Settings = () => {
     toast.success(`Alarma configurada a ${minutos} minutos`);
   };
 
+  const persistSoundSettings = (nextSettings) => {
+    localStorage.setItem('app_sound_settings', JSON.stringify(nextSettings));
+    window.dispatchEvent(new Event('app-settings-updated'));
+  };
+
+  const stopSoundPreview = () => {
+    if (previewAudioRef.current) {
+      try {
+        previewAudioRef.current.pause();
+        previewAudioRef.current.currentTime = 0;
+      } catch (error) {
+        // Ignorar errores de reproducción al detener preview.
+      }
+      previewAudioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  const playVoicePreview = (volumePercent) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    const synth = window.speechSynthesis;
+    const hablar = () => {
+      const utterance = new SpeechSynthesisUtterance('domicilio solicitado');
+      const voices = synth.getVoices();
+      const vozPreferida =
+        voices.find((v) => /es-(CO|ES|MX)/i.test(String(v.lang || ''))) ||
+        voices.find((v) => String(v.lang || '').toLowerCase().startsWith('es')) ||
+        null;
+
+      if (vozPreferida) utterance.voice = vozPreferida;
+      utterance.lang = 'es-CO';
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = clampVolume(volumePercent) / 100;
+
+      synth.cancel();
+      synth.speak(utterance);
+    };
+
+    if (synth.getVoices().length === 0) {
+      const onVoicesChanged = () => {
+        synth.removeEventListener('voiceschanged', onVoicesChanged);
+        hablar();
+      };
+      synth.addEventListener('voiceschanged', onVoicesChanged);
+      setTimeout(() => {
+        synth.removeEventListener('voiceschanged', onVoicesChanged);
+        hablar();
+      }, 300);
+      return;
+    }
+
+    hablar();
+  };
+
+  const handlePreviewSound = (soundKey) => {
+    const config = soundSettings[soundKey] || DEFAULT_SOUND_SETTINGS[soundKey];
+    if (!config?.enabled) {
+      toast(t.enableToPreview);
+      return;
+    }
+
+    stopSoundPreview();
+
+    if (soundKey === 'dispatcherVoice') {
+      playVoicePreview(config.volume);
+      return;
+    }
+
+    const previewUrl = SOUND_PREVIEW_URLS[soundKey];
+    if (!previewUrl) return;
+
+    try {
+      const audio = new Audio(previewUrl);
+      audio.volume = clampVolume(config.volume) / 100;
+      previewAudioRef.current = audio;
+      audio.onended = () => {
+        if (previewAudioRef.current === audio) {
+          previewAudioRef.current = null;
+        }
+      };
+      audio.play().catch(() => toast.error(t.previewBlocked));
+    } catch (error) {
+      toast.error(t.previewBlocked);
+    }
+  };
+
+  const handleSoundEnabledToggle = (soundKey) => {
+    const nextSettings = {
+      ...soundSettings,
+      [soundKey]: {
+        ...soundSettings[soundKey],
+        enabled: !soundSettings[soundKey].enabled
+      }
+    };
+    setSoundSettings(nextSettings);
+    persistSoundSettings(nextSettings);
+  };
+
+  const handleSoundVolumeChange = (soundKey, value) => {
+    const nextSettings = {
+      ...soundSettings,
+      [soundKey]: {
+        ...soundSettings[soundKey],
+        volume: clampVolume(value)
+      }
+    };
+    setSoundSettings(nextSettings);
+    persistSoundSettings(nextSettings);
+  };
+
   const t = translations[currentLanguage];
+  const soundRows = [
+    { key: 'newOrder', label: t.soundNewOrder },
+    { key: 'payment', label: t.soundPayment },
+    { key: 'delivery', label: t.soundDelivery },
+    { key: 'pendingDispatchAlert', label: t.soundPendingAlert },
+    { key: 'pendingDispatchAlarm', label: t.soundPendingAlarm },
+    { key: 'dispatcherVoice', label: t.soundDispatcherVoice }
+  ];
 
   return (
     <div className="p-3 sm:p-6 max-w-7xl mx-auto">
@@ -472,6 +691,63 @@ const Settings = () => {
                   ))}
                 </select>
                 <p className="text-xs text-gray-400 mt-2">{t.pendingAlertHelp}</p>
+              </div>
+
+              <div>
+                <p className="text-xs sm:text-sm text-gray-400 mb-3">{t.sounds}</p>
+                <div className="space-y-3">
+                  {soundRows.map((soundItem) => {
+                    const current = soundSettings[soundItem.key] || DEFAULT_SOUND_SETTINGS[soundItem.key];
+                    return (
+                      <div key={soundItem.key} className="p-3 bg-[#374151] rounded-xl shadow-sm space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-white text-sm sm:text-base leading-tight">{soundItem.label}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handlePreviewSound(soundItem.key)}
+                              className="inline-flex items-center gap-1 px-3 h-8 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary transition-colors text-xs sm:text-sm"
+                              aria-label={`${t.preview}: ${soundItem.label}`}
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>{t.preview}</span>
+                            </button>
+                            <button
+                              onClick={() => handleSoundEnabledToggle(soundItem.key)}
+                              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors touch-manipulation ${
+                                current.enabled ? 'bg-primary' : 'bg-gray-500'
+                              }`}
+                              aria-label={`${t.enabled}: ${soundItem.label}`}
+                            >
+                              <span
+                                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-md ${
+                                  current.enabled ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-gray-300 mb-2">
+                            <span>{t.volume}</span>
+                            <span>{current.volume}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={current.volume}
+                            disabled={!current.enabled}
+                            onChange={(e) => handleSoundVolumeChange(soundItem.key, e.target.value)}
+                            className="w-full accent-primary disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">{t.soundsHelp}</p>
               </div>
             </div>
           </div>
