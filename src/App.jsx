@@ -7,7 +7,7 @@ import Orders from './pages/Orders';
 import Clients from './pages/Clients';
 import Repartidores from './pages/Repartidores';
 import Reportes from './pages/Reportes';
-import ClientIntelligence from './pages/ClientIntelligence';
+// import eliminado
 import Settings from './pages/Settings';
 import { verificarConexionFirebase } from './services/firebaseService';
 
@@ -37,8 +37,7 @@ function App() {
         return <Repartidores />;
       case 'analytics':
         return <Reportes />;
-      case 'intelligence':
-        return <ClientIntelligence />;
+      // case eliminado
       case 'settings':
         return <Settings />;
       default:

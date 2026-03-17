@@ -21,6 +21,8 @@ import {
 } from '../services/firebaseService';
 
 const Orders = () => {
+    // Bandera para evitar sobrescritura mientras updateDoc está pendiente
+    const [actualizandoPedido, setActualizandoPedido] = useState({});
   const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
   const SOUND_DEFAULTS = {
     newOrder: { enabled: true, volume: 100 },
@@ -541,12 +543,36 @@ const Orders = () => {
         if ((!pedidosRealtime || pedidosRealtime.length === 0) && base.length > 0) {
           return deduplicarPedidos(base);
         }
+        // Bloquear actualización de fila editada o actualizando
+        const idsBloqueados = Object.keys(actualizandoPedido).filter(k => actualizandoPedido[k]);
         const mergeados = mergePedidosPreservandoHoras(base, pedidosRealtime || []);
-        return deduplicarPedidos(mergeados);
+        return deduplicarPedidos(
+          mergeados.map(p => {
+            // Si está editando o actualizando, mantener valores locales
+            if (editingCell && editingCell.id && coincidePedidoId(p, editingCell.id)) {
+              const localEdit = base.find(b => coincidePedidoId(b, editingCell.id));
+              return localEdit ? { ...p, ...localEdit } : p;
+            }
+            if (idsBloqueados.some(id => coincidePedidoId(p, id))) {
+              const localEdit = base.find(b => coincidePedidoId(b, p.id));
+              if (localEdit) {
+                return {
+                  ...p,
+                  repartidor_id: localEdit.repartidor_id,
+                  repartidor_nombre: localEdit.repartidor_nombre,
+                  metodo_pago: localEdit.metodo_pago,
+                  hora_repartidor: localEdit.hora_repartidor,
+                  hora_metodo_pago: localEdit.hora_metodo_pago
+                };
+              }
+            }
+            return p;
+          })
+        );
       });
     });
     return () => unsubscribe && unsubscribe();
-  }, []);
+  }, [actualizandoPedido, editingCell]);
 
   /**
    * Carga inicial de datos desde localStorage al montar el componente
@@ -910,91 +936,39 @@ const Orders = () => {
     cerrarModalPedido();
   };
 
-  const handleAsignarRepartidor = async (pedidoId, repartidorId) => {
-    const repartidor = repartidores.find(r => r.id === repartidorId);
+  // Nueva función simple para asignar repartidor
+  const handleAsignarRepartidor = (pedidoId, repartidorId) => {
     const horaEvento = getHoraAmPmActual();
-    const timestampEvento = new Date().toISOString();
-    let pedidoConCambio = null;
-    const pedidoActual = pedidos.find((p) => coincidePedidoId(p, pedidoId));
-    const repartidorAnterior = pedidoActual?.repartidor_id || '';
-    const debeAnunciar = Boolean(repartidorId) && String(repartidorAnterior) !== String(repartidorId);
-    const cambioAsignacion = String(repartidorAnterior) !== String(repartidorId || '');
-    const idNormalizado = normalizarPedidoId(pedidoId);
-
-    if (cambioAsignacion) {
-      limpiarTimerDespacho(idNormalizado);
-      quitarAlertaDespacho(idNormalizado);
-    }
-
-    setPedidos(prev => {
-      const updated = prev.map(p => 
-        coincidePedidoId(p, pedidoId)
-          ? (() => {
-              const cambiado = {
-                ...p,
-                repartidor_id: repartidorId || null,
-                repartidor_nombre: repartidor ? repartidor.nombre : 'Sin Asignar',
-                hora_repartidor: horaEvento,
-                timestamp_repartidor: repartidorId ? timestampEvento : ''
-              };
-              pedidoConCambio = cambiado;
-              return cambiado;
-            })()
-          : p
-      );
-      localStorage.setItem('pedidos', JSON.stringify(updated));
-      return updated;
-    });
-
-    if (debeAnunciar) {
-      anunciarDomicilioSolicitado();
-    }
-
-    try {
-      const idFirestore = pedidoConCambio?.firestoreId || pedidoConCambio?.id;
-      if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
-        await updatePedido(String(idFirestore), {
-          repartidor_id: repartidorId || null,
-          repartidor_nombre: repartidor ? repartidor.nombre : 'Sin Asignar',
-          hora_repartidor: horaEvento,
-          timestamp_repartidor: repartidorId ? timestampEvento : ''
-        });
-      }
-      toast.success('Repartidor asignado');
-    } catch (error) {
-      console.error('❌ Error al asignar repartidor:', error);
-      toast.error('No se pudo guardar la asignación en Firebase');
-    }
-  };
-
-  const handleMetodoPagoChange = async (id, metodoPago) => {
-    const horaEvento = getHoraAmPmActual();
-    let pedidoConCambio = null;
-
     setPedidos(prev => {
       const updated = prev.map(p =>
-        coincidePedidoId(p, id)
-          ? (() => {
-              const cambiado = { ...p, metodo_pago: metodoPago, hora_metodo_pago: horaEvento };
-              pedidoConCambio = cambiado;
-              return cambiado;
-            })()
+        coincidePedidoId(p, pedidoId)
+          ? { ...p, repartidor_id: repartidorId, hora_repartidor: horaEvento }
           : p
       );
-      localStorage.setItem('pedidos', JSON.stringify(updated));
+      // Generar mensaje si el repartidor es elite
+      const repartidor = repartidores.find(r => r.id === repartidorId);
+      if (repartidor && repartidor.nombre && repartidor.nombre.toLowerCase().includes('elite')) {
+        const pedidoActual = updated.find(p => coincidePedidoId(p, pedidoId));
+        const direccionCliente = pedidoActual?.direccion || pedidoActual?.direccion_habitual || pedidoActual?.domicilio || '';
+        const mensaje = `Hola, por favor me mandas un domiciliario va para ${direccionCliente}`;
+        if (navigator.clipboard && window) {
+          navigator.clipboard.writeText(mensaje).then(() => {
+            toast.success('Mensaje copiado en portapapeles');
+          });
+        }
+      }
       return updated;
     });
+  };
 
-    try {
-      const idFirestore = pedidoConCambio?.firestoreId || pedidoConCambio?.id;
-      if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
-        await updatePedido(String(idFirestore), { metodo_pago: metodoPago, hora_metodo_pago: horaEvento });
-      }
-      toast.success('Metodo de pago actualizado');
-    } catch (error) {
-      console.error('❌ Error al actualizar metodo de pago:', error);
-      toast.error('No se pudo guardar el metodo de pago');
-    }
+  // Nueva función simple para cambiar método de pago
+  const handleMetodoPagoChange = (pedidoId, metodoPago) => {
+    const horaEvento = getHoraAmPmActual();
+    setPedidos(prev => prev.map(p =>
+      coincidePedidoId(p, pedidoId)
+        ? { ...p, metodo_pago: metodoPago, hora_metodo_pago: horaEvento }
+        : p
+    ));
   };
 
   const toggleEstadoPago = async (id) => {
@@ -1064,6 +1038,15 @@ const Orders = () => {
 
     if (nuevoEstadoEntregado) {
       playDeliverySound();
+      // Copiar mensaje de fidelización al portapapeles
+      const pedido = pedidos.find(p => coincidePedidoId(p, id));
+      const nombreCliente = pedido?.cliente || '';
+      const mensajeFidelizacion = `Hola ${nombreCliente} tu pedido ya va en camino, que tengas muy buen provecho, te agradecemos por preferirnos, te esperamos pronto.\n\n📲 Síguenos en nuestras redes sociales y entérate de promociones, nuevos productos y contenido brutal 🔥🍔\n\nTikTok:\nhttps://www.tiktok.com/@roalburger?_r=1&_t=ZS-94kgEkN4aEH\n\nInstagram:\nhttps://www.instagram.com/roalburgerarmenia?igsh=cWE2eGRyNnlxaXgy&utm_source=qr\n\nFacebook:\nhttps://www.facebook.com/share/1B9MGGXh6h/?mibextid=wwXIfr\n\nROAL Burger\nComida rápida con acento venezolano 🇻🇪🔥`;
+      if (navigator.clipboard && window) {
+        navigator.clipboard.writeText(mensajeFidelizacion).then(() => {
+          toast.success('Mensaje de fidelización copiado en portapapeles');
+        });
+      }
     }
 
     try {
@@ -1650,111 +1633,102 @@ const Orders = () => {
   };
 
   return (
+
     <div className="space-y-6">
-      <div className="w-full">
-        <div className="grid grid-cols-[116px_minmax(0,1fr)] lg:grid-cols-[150px_minmax(220px,1fr)_150px_150px_auto] gap-2 sm:gap-3 items-stretch">
-          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
-            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Pedidos</p>
-            <p className="text-xl sm:text-2xl font-bold text-primary">{totalPedidos}</p>
-          </div>
-
-          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-0">
-            <label className="block text-[10px] sm:text-xs uppercase tracking-wide text-gray-400 mb-1.5 sm:mb-2">
-              Consultar Costo por Direccion
-            </label>
-            <input
-              type="text"
-              value={consultaDireccion}
-              onChange={(e) => setConsultaDireccion(e.target.value)}
-              placeholder="Escribe una direccion para sugerir costo..."
-              className="w-full h-[36px] sm:h-[40px] px-3 sm:px-4 bg-[#374151] border border-dark-border rounded-lg text-sm sm:text-base text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-          </div>
-
-          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
-            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Costos de Envio</p>
-            <p className="text-xl sm:text-2xl font-bold text-warning">${totalCostosEnvio.toLocaleString()}</p>
-          </div>
-
-          <div className="bg-dark-card border border-dark-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 min-w-[120px]">
-            <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-400">Total Ventas Pesos</p>
-            <p className="text-xl sm:text-2xl font-bold text-success">${totalVentasPesos.toLocaleString()}</p>
-          </div>
-
-          <div className="col-span-2 lg:col-span-1 flex justify-end lg:justify-center lg:items-center">
-            <button
-              onClick={handleCerrarTurno}
-              disabled={loadingCierreTurno}
-              className="h-[40px] sm:h-full sm:min-h-[58px] flex items-center gap-1.5 sm:gap-2 whitespace-nowrap bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-3 sm:px-4 py-2 sm:py-3 rounded-md sm:rounded-lg transition-colors text-xs sm:text-sm font-medium"
-              title="Cerrar Turno y Guardar Resumen"
-            >
-              {loadingCierreTurno ? (
-                <>
-                  <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span className="hidden sm:inline">Cerrando...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="hidden sm:inline">Cerrar Turno</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleSincronizacion}
-              className="hidden items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
-              title="Sincronizar con la Nube"
-            >
-              <Cloud className="w-5 h-5" />
-              Sincronizar
-            </button>
-          </div>
+      {/* Header tipo dashboard con cards */}
+      <div className="w-full grid grid-cols-1 md:grid-cols-5 gap-4 mb-2">
+        {/* Botón Cerrar Turno (ahora primero) */}
+        <div className="bg-orange-600 hover:bg-orange-700 transition-colors flex flex-col items-center justify-center rounded-lg px-4 py-4 min-h-[70px]">
+          <button
+            onClick={handleCerrarTurno}
+            disabled={loadingCierreTurno}
+            className="w-full flex flex-col items-center justify-center text-white font-bold text-base focus:outline-none"
+            style={{ minHeight: '40px' }}
+            title="Cerrar Turno y Guardar Resumen"
+          >
+            {loadingCierreTurno ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mb-1"></div>
+                <span className="text-xs">Cerrando...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-6 h-6 mb-1" />
+                <span className="uppercase tracking-widest">Cerrar Turno</span>
+              </>
+            )}
+          </button>
         </div>
-
-        <div className="mt-2 text-xs sm:text-sm text-gray-300 min-h-[20px]">
-          {loadingSugerenciaCosto && 'Buscando sugerencia...'}
-          {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && sugerenciaCosto && (
-            `Costo sugerido: $${Number(sugerenciaCosto.costoSugerido || 0).toLocaleString()} · Base: ${sugerenciaCosto.direccionBase || 'N/A'} · Coincidencias: ${Number(sugerenciaCosto.coincidencias || 0)}`
-          )}
-          {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && !sugerenciaCosto && 'Sin coincidencias en historial.'}
+        {/* Consultar Costo por Dirección */}
+        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px] col-span-2">
+          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Consultar Costo por Direccion</span>
+          <input
+            type="text"
+            value={consultaDireccion}
+            onChange={(e) => setConsultaDireccion(e.target.value)}
+            placeholder="boyaca"
+            className="w-full h-[36px] px-3 bg-[#232e3a] border border-dark-border rounded-lg text-base text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+          />
+          <span className="text-xs text-gray-300 mt-1">
+            {loadingSugerenciaCosto && 'Buscando...'}
+            {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && sugerenciaCosto && (
+              <>
+                Costo sugerido: <span className="text-warning font-bold">${Number(sugerenciaCosto.costoSugerido || 0).toLocaleString()}</span>
+                {sugerenciaCosto.direccionBase && ` · Base: ${sugerenciaCosto.direccionBase}`}
+                {typeof sugerenciaCosto.coincidencias !== 'undefined' && ` · Coincidencias: ${Number(sugerenciaCosto.coincidencias || 0)}`}
+              </>
+            )}
+            {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && !sugerenciaCosto && 'Sin coincidencias.'}
+          </span>
         </div>
+        {/* Total Costos de Envío */}
+        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px]">
+          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Total Costos de Envio</span>
+          <span className="text-warning font-extrabold text-2xl leading-none">${totalCostosEnvio.toLocaleString()}</span>
+        </div>
+        {/* Total Ventas Pesos */}
+        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px]">
+          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Total Ventas Pesos</span>
+          <span className="text-success font-extrabold text-2xl leading-none">${totalVentasPesos.toLocaleString()}</span>
+        </div>
+      </div>
 
-        {alertasDespacho.length > 0 && (
-          <div className="fixed bottom-4 right-4 z-[70] w-[calc(100vw-2rem)] max-w-md space-y-2">
-            {alertasDespacho.map((alerta, idx) => (
-              <div key={alerta.pedidoId} className="border border-warning bg-[#422006] shadow-2xl rounded-lg p-3 sm:p-4">
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <p className="text-warning font-bold text-sm sm:text-base">Alarma de pedido pendiente por entregar</p>
-                    <p className="text-orange-100 text-xs sm:text-sm">
-                      Cliente: {alerta.cliente} · Repartidor: {alerta.repartidor}
+      {/* Alertas Despacho (unchanged) */}
+      {alertasDespacho.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-[70] w-[calc(100vw-2rem)] max-w-md space-y-2">
+          {alertasDespacho.map((alerta, idx) => (
+            <div key={alerta.pedidoId} className="border border-warning bg-[#422006] shadow-2xl rounded-lg p-3 sm:p-4">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="text-warning font-bold text-sm sm:text-base">Alarma de pedido pendiente por entregar</p>
+                  <p className="text-orange-100 text-xs sm:text-sm">
+                    Cliente: {alerta.cliente} · Repartidor: {alerta.repartidor}
+                  </p>
+                  {idx === 0 && alertasDespacho.length > 1 && (
+                    <p className="text-[11px] sm:text-xs text-orange-200 mt-1">
+                      Hay {alertasDespacho.length} pedidos pendientes de revision
                     </p>
-                    {idx === 0 && alertasDespacho.length > 1 && (
-                      <p className="text-[11px] sm:text-xs text-orange-200 mt-1">
-                        Hay {alertasDespacho.length} pedidos pendientes de revision
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => reprogramarAviso5Min(alerta.pedidoId)}
-                      className="px-3 py-2 rounded-md bg-dark-bg border border-dark-border text-gray-100 text-xs sm:text-sm hover:bg-dark-border transition-colors"
-                    >
-                      Avisar en {minutosAlertaPendiente} min
-                    </button>
-                    <button
-                      onClick={() => confirmarDespachadoDesdeAlerta(alerta.pedidoId)}
-                      className="px-3 py-2 rounded-md bg-success text-white text-xs sm:text-sm hover:bg-green-700 transition-colors"
-                    >
-                      Revisado / entregado
-                    </button>
-                  </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => reprogramarAviso5Min(alerta.pedidoId)}
+                    className="px-3 py-2 rounded-md bg-dark-bg border border-dark-border text-gray-100 text-xs sm:text-sm hover:bg-dark-border transition-colors"
+                  >
+                    Avisar en {minutosAlertaPendiente} min
+                  </button>
+                  <button
+                    onClick={() => confirmarDespachadoDesdeAlerta(alerta.pedidoId)}
+                    className="px-3 py-2 rounded-md bg-success text-white text-xs sm:text-sm hover:bg-green-700 transition-colors"
+                  >
+                    Revisado / entregado
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Buscador con Auto-Insert */}
       <div className="sticky top-14 z-20 sm:static bg-dark-card/95 sm:bg-dark-card border border-dark-border rounded-lg p-4 sm:p-6 backdrop-blur-sm sm:backdrop-blur-0">
@@ -1985,9 +1959,7 @@ const Orders = () => {
                       >
                         <option value="">-</option>
                         {(repartidores || []).map(rep => (
-                          <option key={rep.id} value={rep.id}>
-                            {rep.nombre}
-                          </option>
+                          <option key={rep.id} value={rep.id}>{rep.nombre}</option>
                         ))}
                       </select>
                       <div className="text-[10px] text-gray-400 mt-0.5">{formatHoraAmPm(pedido.hora_repartidor)}</div>
@@ -1996,7 +1968,7 @@ const Orders = () => {
                     <td className="px-1.5 py-2.5 text-center">
                       <select
                         value={pedido.metodo_pago || ''}
-                        onChange={(e) => handleMetodoPagoChange(pedido.id, e.target.value)}
+                        onChange={(e) => handleMetodoPagoChange(obtenerIdPedido(pedido) || pedido.id, e.target.value)}
                         className="w-[78px] px-1 py-1 bg-[#374151] border border-dark-border rounded text-white text-[11px] focus:ring-2 focus:ring-primary focus:border-transparent"
                       >
                         <option value="">-</option>

@@ -18,7 +18,7 @@ const Sidebar = ({ isOpen, setIsOpen, activeSection, setActiveSection }) => {
     { id: 'pedidos', label: 'Pedidos', icon: Bike },
     { id: 'clientes', label: 'Clientes', icon: Users },
     { id: 'repartidores', label: 'Repartidores', icon: Truck },
-    { id: 'intelligence', label: 'Inteligencia', icon: Brain },
+    // pestaña eliminada
     { id: 'analytics', label: 'Reportes', icon: BarChart3 },
     { id: 'settings', label: 'Configuración', icon: Settings },
   ];
