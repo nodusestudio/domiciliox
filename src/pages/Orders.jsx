@@ -1105,44 +1105,35 @@ const Orders = () => {
       const pedidoActualizado = pedidos.find(p => coincidePedidoId(p, editingCell.id));
       if (pedidoActualizado) {
         let nuevoValor = editValue;
-        
         // Convertir a número si es un campo numérico
-        if (['valor_pedido', 'costo_envio'].includes(editingCell.field)) {
+        if (["valor_pedido", "costo_envio"].includes(editingCell.field)) {
           nuevoValor = parseFloat(editValue) || 0;
         }
-        
         // Actualizar el pedido
         const pedidosActualizados = pedidos.map(p => {
           if (coincidePedidoId(p, editingCell.id)) {
             const actualizado = { ...p, [editingCell.field]: nuevoValor };
-            
             // Recalcular total si se modificó valor_pedido o costo_envio
             if (editingCell.field === 'valor_pedido' || editingCell.field === 'costo_envio') {
               const valorPedido = editingCell.field === 'valor_pedido' ? nuevoValor : p.valor_pedido;
               const costoEnvio = editingCell.field === 'costo_envio' ? nuevoValor : p.costo_envio;
               actualizado.total_a_recibir = valorPedido - costoEnvio;
             }
-            
             return actualizado;
           }
           return p;
         });
-        
         // Guardar en localStorage directamente
         try {
           localStorage.setItem('pedidos', JSON.stringify(pedidosActualizados));
           setPedidos(pedidosActualizados);
-          
           // Si se editó información del cliente (teléfono, dirección o nombre), actualizar en Firebase
-          if (['telefono', 'direccion', 'cliente'].includes(editingCell.field)) {
+          if (["telefono", "direccion", "cliente"].includes(editingCell.field)) {
             const nombreCliente = editingCell.field === 'cliente' ? nuevoValor : pedidoActualizado.cliente;
-            
             // Buscar el cliente en la lista
             const clienteExistente = clientes.find(c => c.nombre === nombreCliente);
-            
             if (clienteExistente) {
               const datosActualizados = {};
-              
               if (editingCell.field === 'telefono') {
                 datosActualizados.telefono = nuevoValor;
               } else if (editingCell.field === 'direccion') {
@@ -1150,10 +1141,8 @@ const Orders = () => {
               } else if (editingCell.field === 'cliente') {
                 datosActualizados.nombre = nuevoValor;
               }
-              
               try {
                 await updateCliente(clienteExistente.id, datosActualizados);
-                
                 // Actualizar la lista local de clientes
                 const clientesActualizados = clientes.map(c => 
                   c.id === clienteExistente.id 
@@ -1162,7 +1151,6 @@ const Orders = () => {
                 );
                 setClientes(clientesActualizados);
                 localStorage.setItem('clientes_cache', JSON.stringify(clientesActualizados));
-                
                 console.log('✅ Cliente actualizado en Firebase:', datosActualizados);
                 toast.success('Pedido y cliente actualizados');
               } catch (error) {
@@ -1175,8 +1163,25 @@ const Orders = () => {
           } else {
             toast.success('Pedido actualizado');
           }
+          // NUEVO: Actualizar el pedido en Firebase si tiene firestoreId válido
+          const idFirestore = pedidoActualizado.firestoreId || pedidoActualizado.id;
+          if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
+            // Solo enviar los campos editados y dependientes
+            const updateData = { [editingCell.field]: nuevoValor };
+            if (editingCell.field === 'valor_pedido' || editingCell.field === 'costo_envio') {
+              const valorPedido = editingCell.field === 'valor_pedido' ? nuevoValor : pedidoActualizado.valor_pedido;
+              const costoEnvio = editingCell.field === 'costo_envio' ? nuevoValor : pedidoActualizado.costo_envio;
+              updateData.total_a_recibir = valorPedido - costoEnvio;
+            }
+            try {
+              await updatePedido(String(idFirestore), updateData);
+            } catch (error) {
+              console.error('❌ Error al actualizar pedido en Firebase:', error);
+              toast.error('Error al actualizar en la nube. El cambio solo es local.');
+            }
+          }
         } catch (error) {
-          toast.error('Error al guardar cambios. Int\u00e9ntalo nuevamente.');
+          toast.error('Error al guardar cambios. Inténtalo nuevamente.');
         }
       }
     }
