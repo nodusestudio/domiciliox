@@ -12,6 +12,15 @@ import {
 } from '../services/firebaseService';
 
 const Clients = () => {
+  const convertirAMayusculas = (texto = '') => String(texto ?? '').toUpperCase();
+  const normalizarCliente = (cliente = {}) => ({
+    ...cliente,
+    nombre: convertirAMayusculas(cliente.nombre).trim(),
+    direccion_habitual: convertirAMayusculas(cliente.direccion_habitual).trim(),
+    telefono: convertirAMayusculas(cliente.telefono).trim(),
+    email: convertirAMayusculas(cliente.email).trim()
+  });
+
   const [clientes, setClientes] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -62,7 +71,7 @@ const Clients = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: convertirAMayusculas(value)
     }));
   };
 
@@ -76,13 +85,15 @@ const Clients = () => {
 
     setLoadingGuardar(true);
     try {
+      const clienteNormalizado = normalizarCliente(formData);
+
       if (editingId) {
         // Actualizar cliente existente
-        await updateCliente(editingId, formData);
+        await updateCliente(editingId, clienteNormalizado);
         toast.success('Cliente actualizado exitosamente');
       } else {
         // Agregar nuevo cliente
-        await addCliente(formData);
+        await addCliente(clienteNormalizado);
         toast.success('Cliente creado exitosamente');
       }
       
@@ -118,26 +129,27 @@ const Clients = () => {
 
   const handleEdit = (cliente) => {
     setEditingId(cliente.id);
-    setFormData({
+    setFormData(normalizarCliente({
       nombre: cliente.nombre,
       direccion_habitual: cliente.direccion_habitual,
       telefono: cliente.telefono,
       email: cliente.email || ''
-    });
+    }));
     setShowModal(true);
   };
 
   const handleCellDoubleClick = (cliente, field) => {
     setEditingCell({ id: cliente.id, field });
-    setEditValue(cliente[field] || '');
+    setEditValue(convertirAMayusculas(cliente[field] || ''));
   };
 
   const handleCellBlur = async () => {
     if (editingCell.id && editingCell.field) {
       const clienteActualizado = clientes.find(c => c.id === editingCell.id);
-      if (clienteActualizado && clienteActualizado[editingCell.field] !== editValue) {
+      const valorNormalizado = convertirAMayusculas(editValue).trim();
+      if (clienteActualizado && String(clienteActualizado[editingCell.field] || '') !== valorNormalizado) {
         try {
-          const datosActualizados = { [editingCell.field]: editValue };
+          const datosActualizados = { [editingCell.field]: valorNormalizado };
           await updateCliente(editingCell.id, datosActualizados);
           await cargarClientes();
           toast.success('Campo actualizado');
@@ -359,7 +371,7 @@ const Clients = () => {
             type="text"
             placeholder="Buscar por nombre o teléfono..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchTerm(convertirAMayusculas(e.target.value))}
             className="w-full pl-10 pr-4 py-2 bg-[#374151] border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>
@@ -399,7 +411,7 @@ const Clients = () => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(convertirAMayusculas(e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           autoFocus
@@ -420,7 +432,7 @@ const Clients = () => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(convertirAMayusculas(e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           autoFocus
@@ -441,7 +453,7 @@ const Clients = () => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(convertirAMayusculas(e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           autoFocus
@@ -462,7 +474,7 @@ const Clients = () => {
                         <input
                           type="email"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(convertirAMayusculas(e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           autoFocus

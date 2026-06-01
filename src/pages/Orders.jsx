@@ -1,6 +1,6 @@
                   
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarRange, Check, Cloud, Clock3, Filter, Package2, Search, Sparkles, Trash2, TrendingUp, UserPlus, WalletCards, X } from 'lucide-react';
+import { CalendarRange, Check, Cloud, Clock3, Filter, Loader, Mic, Package2, Search, Sparkles, Trash2, TrendingUp, UserPlus, WalletCards, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
   getClientes, 
@@ -194,6 +194,10 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
   const [loadingCrearCliente, setLoadingCrearCliente] = useState(false);
   const [editingCell, setEditingCell] = useState({ id: null, field: null });
   const [editValue, setEditValue] = useState('');
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceDraft, setVoiceDraft] = useState(null);
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: '',
     direccion_habitual: '',
@@ -205,6 +209,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
   const timersDespachoRef = useRef(new Map());
   const pedidosRef = useRef([]);
   const alertaAudioRef = useRef(null);
+  const voiceRecognitionRef = useRef(null);
   const [minutosAlertaPendiente, setMinutosAlertaPendiente] = useState(obtenerMinutosAlertaConfigurados);
 
   const normalizarPedidoId = (value) => String(value ?? '').trim();
@@ -388,7 +393,133 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
       .trim();
   };
 
+  const convertirAMayusculas = (texto = '') => String(texto ?? '').toUpperCase();
+
+  const normalizarValorCapturado = (field, value) => {
+    if (["valor_pedido", "costo_envio"].includes(field)) return value;
+    return convertirAMayusculas(value);
+  };
+
   const normalizarTelefonoBusqueda = (texto = '') => String(texto || '').replace(/\D/g, '');
+
+  const obtenerMensajeErrorVoz = (errorCode = '') => {
+    switch (String(errorCode || '').toLowerCase()) {
+      case 'not-allowed':
+      case 'service-not-allowed':
+        return 'Microfono bloqueado. Permite el acceso al microfono y abre la app en Chrome o Edge.';
+      case 'audio-capture':
+        return 'No encontre un microfono disponible en este equipo.';
+      case 'network':
+        return 'El servicio de reconocimiento de voz no respondio. Intenta de nuevo.';
+      case 'no-speech':
+        return 'No detecte voz. Habla mas cerca del microfono e intenta otra vez.';
+      case 'aborted':
+        return '';
+      default:
+        return 'No se pudo procesar el dictado por voz.';
+    }
+  };
+
+  const solicitarPermisoMicrofono = async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      return true;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return true;
+    } catch (error) {
+      console.warn('⚠️ Acceso al microfono denegado o no disponible:', error);
+      toast.error('Microfono bloqueado. Revisa el permiso del navegador para esta pagina.');
+      return false;
+    } finally {
+      stream?.getTracks?.().forEach((track) => track.stop());
+    }
+  };
+
+  const limpiarMontoDetectado = (valor = '') => {
+    const numero = parseValorNumerico(valor);
+    if (!Number.isFinite(numero) || numero < 0) return '';
+    return String(Math.round(numero));
+  };
+
+  const extraerMontoDesdeTexto = (texto = '', keywords = []) => {
+    if (!texto || keywords.length === 0) return '';
+    const union = keywords.join('|');
+    const direct = new RegExp(`(?:${union})\\s*(?:DE|DEL|POR)?\\s*\\$?\\s*([0-9][0-9\\s\\.,]*)`, 'i');
+    const inverse = new RegExp(`\\$?\\s*([0-9][0-9\\s\\.,]*)\\s*(?:PESOS\\s*)?(?:DE\\s*)?(?:${union})`, 'i');
+    return limpiarMontoDetectado(texto.match(direct)?.[1] || texto.match(inverse)?.[1] || '');
+  };
+
+  const extraerClienteDesdeTexto = (texto = '') => {
+    const limpio = convertirAMayusculas(texto)
+      .replace(/[.,;:]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const patrones = [
+      /(?:BUSCA(?:R)?(?:\s+A)?|CLIENTE|PARA|A NOMBRE DE)\s+([A-Z0-9ÁÉÍÓÚÜÑ\s]+?)(?=(?:\s+(?:PEDIDO|VALOR|ENVIO|COSTO|DOMICILIO|PAGO|CON|EN|POR))|$)/i,
+      /(?:DE)\s+([A-Z0-9ÁÉÍÓÚÜÑ\s]+?)(?=(?:\s+(?:PEDIDO|VALOR|ENVIO|COSTO|DOMICILIO|PAGO|CON|EN|POR))|$)/i
+    ];
+
+    for (const patron of patrones) {
+      const match = limpio.match(patron);
+      if (match?.[1]) return match[1].trim();
+    }
+
+    const fallback = limpio
+      .replace(/\b(BUSCA|BUSCAR|CLIENTE|PARA|A|NOMBRE|DE|CREA|CREAR|AGREGA|AGREGAR|GENERA|GENERAR|PEDIDO|VALOR|ENVIO|COSTO|DOMICILIO|PAGO|EFECTIVO|BANCO|TARJETA|CON|EN|POR|DEL)\b/g, ' ')
+      .replace(/\$?\s*[0-9][0-9\s\.,]*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return fallback.split(' ').slice(0, 4).join(' ').trim();
+  };
+
+  const detectarMetodoPagoVoz = (texto = '') => {
+    const limpio = convertirAMayusculas(texto);
+    if (limpio.includes('EFECTIVO')) return 'Efectivo';
+    if (/(BANCO|TRANSFERENCIA|NEQUI|DAVIPLATA|TARJETA)/.test(limpio)) return 'Banco';
+    return '';
+  };
+
+  const interpretarComandoVoz = (texto = '') => {
+    const transcript = convertirAMayusculas(texto).replace(/\s+/g, ' ').trim();
+    return {
+      transcript,
+      clienteQuery: extraerClienteDesdeTexto(transcript),
+      valor_pedido: extraerMontoDesdeTexto(transcript, ['VALOR', 'PEDIDO', 'TOTAL']),
+      costo_envio: extraerMontoDesdeTexto(transcript, ['ENVIO', 'COSTO', 'DOMICILIO']),
+      metodo_pago: detectarMetodoPagoVoz(transcript),
+      shouldCreate: /\b(CREA|CREAR|AGREGA|AGREGAR|GENERA|GENERAR)\b/.test(transcript)
+    };
+  };
+
+  const obtenerSugerenciasClientes = (value, limit = 12) => {
+    const queryText = normalizarTextoBusqueda(value);
+    const queryPhone = normalizarTelefonoBusqueda(value);
+
+    return (clientes || [])
+      .map((c) => {
+        const nombre = normalizarTextoBusqueda(c.nombre);
+        const telefono = normalizarTelefonoBusqueda(c.telefono);
+        const direccion = normalizarTextoBusqueda(c.direccion_habitual || c.direccion || c.domicilio || '');
+
+        let score = 0;
+        if (queryText && nombre.startsWith(queryText)) score += 120;
+        if (queryText && nombre.includes(queryText)) score += 80;
+        if (queryText && direccion.includes(queryText)) score += 35;
+        if (queryPhone && telefono.startsWith(queryPhone)) score += 110;
+        if (queryPhone && telefono.includes(queryPhone)) score += 60;
+
+        return { cliente: c, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((item) => item.cliente);
+  };
 
   const parseValorNumerico = (valor) => {
     if (valor === null || typeof valor === 'undefined') return NaN;
@@ -702,6 +833,24 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setVoiceSupported(Boolean(SpeechRecognition));
+
+    return () => {
+      if (voiceRecognitionRef.current) {
+        try {
+          voiceRecognitionRef.current.onend = null;
+          voiceRecognitionRef.current.stop();
+        } catch (error) {
+          // Evita errores al desmontar si el reconocimiento ya se cerró.
+        }
+        voiceRecognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (alertasDespacho.length > 0) {
       startPendingDispatchAlarm();
       return;
@@ -724,32 +873,12 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
   }, [soundSettings]);
 
   const handleSearchChange = (e) => {
-    const value = e.target.value;
+    const value = convertirAMayusculas(e.target.value);
     setSearchTerm(value);
+    setVoiceDraft(null);
     
     if (value.length > 0) {
-      const queryText = normalizarTextoBusqueda(value);
-      const queryPhone = normalizarTelefonoBusqueda(value);
-
-      const sugerencias = (clientes || [])
-        .map((c) => {
-          const nombre = normalizarTextoBusqueda(c.nombre);
-          const telefono = normalizarTelefonoBusqueda(c.telefono);
-          const direccion = normalizarTextoBusqueda(c.direccion_habitual || c.direccion || c.domicilio || '');
-
-          let score = 0;
-          if (queryText && nombre.startsWith(queryText)) score += 120;
-          if (queryText && nombre.includes(queryText)) score += 80;
-          if (queryText && direccion.includes(queryText)) score += 35;
-          if (queryPhone && telefono.startsWith(queryPhone)) score += 110;
-          if (queryPhone && telefono.includes(queryPhone)) score += 60;
-
-          return { cliente: c, score };
-        })
-        .filter((item) => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 12)
-        .map((item) => item.cliente);
+      const sugerencias = obtenerSugerenciasClientes(value, 12);
 
       setClienteSugerencias(sugerencias);
       setShowSugerencias(true);
@@ -775,24 +904,30 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
    * - Fecha/hora automática elimina errores de captura manual
    * - Cálculo automático del total previene errores aritméticos
    */
-  const handleSelectCliente = async (cliente) => {
+  const abrirPedidoParaCliente = (cliente, formOverrides = {}) => {
     const direccionCliente = (cliente.direccion_habitual || cliente.direccion || cliente.domicilio || '').trim();
     const costoSugerido = historialCostos[direccionCliente] || '';
 
     if (!direccionCliente) {
       toast.error('Este cliente no tiene direccion registrada');
-      return;
+      return false;
     }
-    
-    setSearchTerm(cliente.nombre);
-    setShowSugerencias(false);
 
     setClienteSeleccionadoPedido(cliente);
     setNuevoPedidoForm({
-      valor_pedido: '',
-      costo_envio: costoSugerido ? String(costoSugerido) : ''
+      valor_pedido: formOverrides.valor_pedido ?? '',
+      costo_envio: formOverrides.costo_envio ?? (costoSugerido ? String(costoSugerido) : '')
     });
     setShowModalPedido(true);
+    return true;
+  };
+
+  const handleSelectCliente = async (cliente) => {
+    setSearchTerm(convertirAMayusculas(cliente.nombre));
+    setShowSugerencias(false);
+    setVoiceDraft(null);
+
+    abrirPedidoParaCliente(cliente);
   };
 
   const cerrarModalPedido = () => {
@@ -825,41 +960,44 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     }
   };
 
-  const handleCrearPedidoDesdeModal = async () => {
-    if (!clienteSeleccionadoPedido) return;
+  const crearPedidoConCliente = async (cliente, formState, opciones = {}) => {
+    if (!cliente) return false;
 
-    const direccionCliente = (clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '').trim();
+    const direccionCliente = (cliente.direccion_habitual || cliente.direccion || cliente.domicilio || '').trim();
     if (!direccionCliente) {
       toast.error('Este cliente no tiene direccion registrada');
-      return;
+      return false;
     }
 
-    const valorPedido = parseValorNumerico(nuevoPedidoForm.valor_pedido);
-    const costoEnvio = parseValorNumerico(nuevoPedidoForm.costo_envio);
+    const valorPedido = parseValorNumerico(formState.valor_pedido);
+    const costoEnvio = parseValorNumerico(formState.costo_envio);
 
     if (!Number.isFinite(valorPedido) || valorPedido <= 0) {
       toast.error('Valor del pedido invalido. Solo se permiten numeros.');
-      return;
+      return false;
     }
 
     if (!Number.isFinite(costoEnvio) || costoEnvio < 0) {
       toast.error('Costo de envio invalido. Solo se permiten numeros.');
-      return;
+      return false;
     }
 
     setLoadingCrearPedido(true);
     const ahora = new Date();
     const fechaFormato = `${ahora.getDate().toString().padStart(2, '0')}/${(ahora.getMonth() + 1).toString().padStart(2, '0')}/${ahora.getFullYear()} ${ahora.getHours().toString().padStart(2, '0')}:${ahora.getMinutes().toString().padStart(2, '0')}`;
+    const metodoPagoInicial = opciones.metodo_pago || '';
+    const horaMetodoPago = metodoPagoInicial ? getHoraAmPmActual() : '';
 
     const nuevoPedido = {
       id: Date.now(),
-      cliente: clienteSeleccionadoPedido.nombre,
+      cliente: cliente.nombre,
       direccion: direccionCliente,
-      telefono: clienteSeleccionadoPedido.telefono,
+      telefono: cliente.telefono,
       valor_pedido: valorPedido,
       costo_envio: costoEnvio,
       total_a_recibir: valorPedido - costoEnvio,
-      metodo_pago: '',
+      metodo_pago: metodoPagoInicial,
+      hora_metodo_pago: horaMetodoPago,
       repartidor_id: null,
       repartidor_nombre: 'Sin Asignar',
       estadoPago: '',
@@ -897,8 +1035,154 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     }));
 
     playSuccessSound();
-    toast.success('Pedido agregado con exito');
+    toast.success(metodoPagoInicial ? 'Pedido agregado con exito desde voz' : 'Pedido agregado con exito');
     cerrarModalPedido();
+    return true;
+  };
+
+  const handleCrearPedidoDesdeModal = async () => {
+    if (!clienteSeleccionadoPedido) return;
+
+    await crearPedidoConCliente(clienteSeleccionadoPedido, nuevoPedidoForm);
+  };
+
+  const procesarComandoVoz = (texto) => {
+    const interpretado = interpretarComandoVoz(texto);
+    const query = interpretado.clienteQuery;
+
+    if (!query) {
+      toast.error('No pude identificar el nombre del cliente en el dictado');
+      return;
+    }
+
+    const coincidencias = obtenerSugerenciasClientes(query, 3);
+    if (coincidencias.length === 0) {
+      setSearchTerm(query);
+      setClienteSugerencias([]);
+      setShowSugerencias(false);
+      setVoiceDraft({
+        ...interpretado,
+        coincidencias: [],
+        cliente: null
+      });
+      toast.error('No encontre un cliente con ese dictado');
+      return;
+    }
+
+    const clientePrincipal = coincidencias[0];
+    const direccionCliente = (clientePrincipal.direccion_habitual || clientePrincipal.direccion || clientePrincipal.domicilio || '').trim();
+    const costoSugerido = historialCostos[direccionCliente] || '';
+
+    setSearchTerm(query);
+    setClienteSugerencias(coincidencias);
+    setShowSugerencias(false);
+    setVoiceDraft({
+      ...interpretado,
+      coincidencias,
+      cliente: clientePrincipal,
+      valor_pedido: interpretado.valor_pedido || '',
+      costo_envio: interpretado.costo_envio || (costoSugerido ? String(costoSugerido) : '')
+    });
+  };
+
+  const toggleVoiceRecognition = async () => {
+    if (!voiceSupported || typeof window === 'undefined') {
+      toast.error('Tu navegador no soporta dictado por voz');
+      return;
+    }
+
+    if (isListeningVoice && voiceRecognitionRef.current) {
+      voiceRecognitionRef.current.stop();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Tu navegador no soporta dictado por voz');
+      return;
+    }
+
+    const permisoConcedido = await solicitarPermisoMicrofono();
+    if (!permisoConcedido) return;
+
+    const recognition = new SpeechRecognition();
+    let transcriptFinal = '';
+
+    recognition.lang = 'es-CO';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setVoiceDraft(null);
+      setVoiceTranscript('');
+      setIsListeningVoice(true);
+    };
+
+    recognition.onresult = (event) => {
+      transcriptFinal = Array.from(event.results)
+        .map((result) => result[0]?.transcript || '')
+        .join(' ')
+        .trim();
+
+      setVoiceTranscript(convertirAMayusculas(transcriptFinal));
+    };
+
+    recognition.onerror = (event) => {
+      setIsListeningVoice(false);
+      const mensaje = obtenerMensajeErrorVoz(event.error);
+      if (mensaje) {
+        toast.error(mensaje);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListeningVoice(false);
+      voiceRecognitionRef.current = null;
+
+      if (transcriptFinal) {
+        procesarComandoVoz(transcriptFinal);
+      }
+    };
+
+    voiceRecognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const confirmarComandoVoz = async () => {
+    if (!voiceDraft?.cliente) return;
+
+    const valoresListos =
+      Number.isFinite(parseValorNumerico(voiceDraft.valor_pedido)) &&
+      Number.isFinite(parseValorNumerico(voiceDraft.costo_envio));
+
+    if (voiceDraft.shouldCreate && valoresListos) {
+      const creado = await crearPedidoConCliente(
+        voiceDraft.cliente,
+        {
+          valor_pedido: voiceDraft.valor_pedido,
+          costo_envio: voiceDraft.costo_envio
+        },
+        { metodo_pago: voiceDraft.metodo_pago }
+      );
+
+      if (creado) {
+        setVoiceDraft(null);
+        setVoiceTranscript('');
+      }
+      return;
+    }
+
+    const abierto = abrirPedidoParaCliente(voiceDraft.cliente, {
+      valor_pedido: voiceDraft.valor_pedido,
+      costo_envio: voiceDraft.costo_envio
+    });
+
+    if (abierto) {
+      setSearchTerm(convertirAMayusculas(voiceDraft.cliente.nombre));
+      setVoiceDraft(null);
+      setVoiceTranscript('');
+    }
   };
 
   // Nueva función simple para asignar repartidor
@@ -1130,14 +1414,14 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
 
   const handleCellDoubleClick = (id, field, value) => {
     setEditingCell({ id, field });
-    setEditValue(value || '');
+    setEditValue(normalizarValorCapturado(field, value || ''));
   };
 
   const handleCellBlur = async () => {
     if (editingCell.id && editingCell.field) {
       const pedidoActualizado = pedidos.find(p => coincidePedidoId(p, editingCell.id));
       if (pedidoActualizado) {
-        let nuevoValor = editValue;
+        let nuevoValor = normalizarValorCapturado(editingCell.field, editValue);
         // Convertir a número si es un campo numérico
         if (["valor_pedido", "costo_envio"].includes(editingCell.field)) {
           nuevoValor = parseFloat(editValue) || 0;
@@ -1504,8 +1788,14 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
 
     setLoadingCrearCliente(true);
     try {
+      const clienteNormalizado = {
+        nombre: convertirAMayusculas(nuevoCliente.nombre).trim(),
+        direccion_habitual: convertirAMayusculas(nuevoCliente.direccion_habitual).trim(),
+        telefono: convertirAMayusculas(nuevoCliente.telefono).trim()
+      };
+
       // Crear cliente usando el servicio
-      const clienteCreado = await addCliente(nuevoCliente);
+      const clienteCreado = await addCliente(clienteNormalizado);
 
       // Recargar catálogo de clientes
       const clientesActualizados = await getClientes();
@@ -1855,7 +2145,113 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
               </div>
             )}
           </div>
+
+          {voiceSupported && (
+            <button
+              type="button"
+              onClick={toggleVoiceRecognition}
+              className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-[16px] border px-3 py-2.5 text-xs font-semibold transition ${isListeningVoice ? 'border-red-400/60 bg-red-500/15 text-red-100' : 'border-white/10 bg-slate-950/35 text-white hover:border-[var(--app-primary)]'}`}
+            >
+              {isListeningVoice ? <Loader className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+              {isListeningVoice ? 'Escuchando...' : 'Dictar pedido'}
+            </button>
+          )}
         </div>
+
+        <div className="mt-2 text-[11px] text-gray-400">
+          Puedes dictar algo como: <span className="text-white">BUSCA A JOHAN ROJAS Y CREA PEDIDO 25000 CON DOMICILIO 7000 EN EFECTIVO</span>
+        </div>
+
+        {(voiceTranscript || voiceDraft) && (
+          <div className="mt-3 rounded-[18px] border border-cyan-400/20 bg-cyan-500/5 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
+              <Sparkles className="h-4 w-4" />
+              Asistente por voz
+            </div>
+
+            {voiceTranscript && !voiceDraft && (
+              <p className="text-sm text-white/90">{voiceTranscript}</p>
+            )}
+
+            {voiceDraft && (
+              <div className="space-y-3">
+                <div className="text-sm text-white/90">{voiceDraft.transcript}</div>
+
+                {voiceDraft.cliente ? (
+                  <div className="rounded-[16px] border border-white/10 bg-slate-950/30 p-3">
+                    <div className="text-xs uppercase tracking-[0.18em] text-gray-400">Cliente detectado</div>
+                    <div className="mt-1 font-semibold text-white">{voiceDraft.cliente.nombre}</div>
+                    <div className="mt-1 text-sm text-gray-300">{getClienteDireccion(voiceDraft.cliente)}</div>
+                    <div className="mt-1 text-xs font-medium tracking-[0.18em] text-[var(--app-primary)] uppercase">
+                      Tel: {getClienteTelefono(voiceDraft.cliente)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-[16px] border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">
+                    No encontré un cliente exacto. Repite el nombre o escríbelo manualmente.
+                  </div>
+                )}
+
+                {voiceDraft.coincidencias?.length > 1 && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-[0.18em] text-gray-400">Coincidencias</div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {voiceDraft.coincidencias.map((cliente, idx) => (
+                        <button
+                          key={`${cliente.id || cliente.nombre || 'voice-cliente'}-${idx}`}
+                          type="button"
+                          onClick={() => setVoiceDraft((prev) => ({ ...prev, cliente }))}
+                          className={`rounded-[16px] border px-3 py-2 text-left transition ${String(voiceDraft.cliente?.id || voiceDraft.cliente?.nombre) === String(cliente.id || cliente.nombre) ? 'border-[var(--app-primary)] bg-[var(--app-primary)]/10' : 'border-white/10 bg-slate-950/25 hover:border-white/20'}`}
+                        >
+                          <div className="text-sm font-semibold text-white">{cliente.nombre}</div>
+                          <div className="mt-1 line-clamp-2 text-xs text-gray-400">{getClienteDireccion(cliente)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-2 text-xs text-gray-300 sm:grid-cols-3">
+                  <div className="rounded-[14px] bg-slate-950/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-gray-500">Valor</div>
+                    <div className="mt-1 font-semibold text-white">{voiceDraft.valor_pedido ? `$${Number(voiceDraft.valor_pedido).toLocaleString()}` : 'Sin detectar'}</div>
+                  </div>
+                  <div className="rounded-[14px] bg-slate-950/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-gray-500">Domicilio</div>
+                    <div className="mt-1 font-semibold text-white">{voiceDraft.costo_envio ? `$${Number(voiceDraft.costo_envio).toLocaleString()}` : 'Sin detectar'}</div>
+                  </div>
+                  <div className="rounded-[14px] bg-slate-950/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-gray-500">Pago</div>
+                    <div className="mt-1 font-semibold text-white">{voiceDraft.metodo_pago || 'Sin detectar'}</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVoiceDraft(null);
+                      setVoiceTranscript('');
+                    }}
+                    className="rounded-[16px] border border-white/10 bg-slate-950/35 px-4 py-2.5 text-sm font-medium text-white transition hover:border-white/20"
+                  >
+                    Descartar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmarComandoVoz}
+                    disabled={!voiceDraft.cliente}
+                    className="rounded-[16px] bg-[linear-gradient(135deg,rgba(78,205,196,0.95),rgba(20,184,166,0.92))] px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {voiceDraft.shouldCreate && Number.isFinite(parseValorNumerico(voiceDraft.valor_pedido)) && Number.isFinite(parseValorNumerico(voiceDraft.costo_envio))
+                      ? 'Confirmar y crear pedido'
+                      : 'Confirmar y abrir captura'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabla de Pedidos */}
@@ -1909,7 +2305,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(normalizarValorCapturado('cliente', e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           className="w-full bg-dark-border text-white px-2 py-1 rounded border border-primary focus:outline-none focus:border-primary-hover"
@@ -1937,7 +2333,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(normalizarValorCapturado('direccion', e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           className="w-full bg-dark-border text-white px-2 py-1 rounded border border-primary focus:outline-none focus:border-primary-hover"
@@ -1960,7 +2356,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                         <input
                           type="text"
                           value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
+                          onChange={(e) => setEditValue(normalizarValorCapturado('telefono', e.target.value))}
                           onBlur={handleCellBlur}
                           onKeyDown={handleCellKeyDown}
                           className="w-full bg-dark-border text-white px-2 py-1 rounded border border-primary focus:outline-none focus:border-primary-hover"
@@ -2347,7 +2743,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                 <input
                   type="text"
                   value={nuevoCliente.nombre}
-                  onChange={(e) => setNuevoCliente({...nuevoCliente, nombre: e.target.value})}
+                  onChange={(e) => setNuevoCliente({...nuevoCliente, nombre: convertirAMayusculas(e.target.value)})}
                   className="w-full px-4 py-2 bg-[#374151] border border-[#374151] rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
                   placeholder="Nombre completo del cliente"
                 />
@@ -2360,7 +2756,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                 <input
                   type="text"
                   value={nuevoCliente.direccion_habitual}
-                  onChange={(e) => setNuevoCliente({...nuevoCliente, direccion_habitual: e.target.value})}
+                  onChange={(e) => setNuevoCliente({...nuevoCliente, direccion_habitual: convertirAMayusculas(e.target.value)})}
                   className="w-full px-4 py-2 bg-[#374151] border border-[#374151] rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
                   placeholder="Dirección completa"
                 />
@@ -2373,7 +2769,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                 <input
                   type="tel"
                   value={nuevoCliente.telefono}
-                  onChange={(e) => setNuevoCliente({...nuevoCliente, telefono: e.target.value})}
+                  onChange={(e) => setNuevoCliente({...nuevoCliente, telefono: convertirAMayusculas(e.target.value)})}
                   className="w-full px-4 py-2 bg-[#374151] border border-[#374151] rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
                   placeholder="Número de teléfono"
                 />

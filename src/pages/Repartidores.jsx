@@ -11,6 +11,14 @@ import {
 } from '../services/firebaseService';
 
 export default function Repartidores() {
+  const convertirAMayusculas = (texto = '') => String(texto ?? '').toUpperCase();
+  const normalizarRepartidor = (repartidor = {}) => ({
+    ...repartidor,
+    nombre: convertirAMayusculas(repartidor.nombre).trim(),
+    placa: convertirAMayusculas(repartidor.placa).trim(),
+    telefono: convertirAMayusculas(repartidor.telefono).trim()
+  });
+
   const [repartidores, setRepartidores] = useState([]);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -43,7 +51,7 @@ export default function Repartidores() {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: type === 'checkbox' ? checked : name === 'vehiculo' ? value : convertirAMayusculas(value)
     }));
   };
 
@@ -67,14 +75,16 @@ export default function Repartidores() {
     }
 
     try {
+      const repartidorNormalizado = normalizarRepartidor(formData);
+
       if (editingId) {
         // Actualizar repartidor
-        console.log('🔄 Actualizando repartidor...', editingId, formData);
-        await updateRepartidor(editingId, formData);
+        console.log('🔄 Actualizando repartidor...', editingId, repartidorNormalizado);
+        await updateRepartidor(editingId, repartidorNormalizado);
       } else {
         // Agregar nuevo repartidor
         console.log('➕ Agregando nuevo repartidor...', formData);
-        await addRepartidor(formData);
+        await addRepartidor(repartidorNormalizado);
       }
 
       resetForm();
@@ -87,10 +97,10 @@ export default function Repartidores() {
   const handleEdit = (repartidor) => {
     setEditingId(repartidor.id);
     setFormData({
-      nombre: repartidor.nombre,
+      nombre: convertirAMayusculas(repartidor.nombre),
       vehiculo: repartidor.vehiculo,
-      placa: repartidor.placa,
-      telefono: repartidor.telefono,
+      placa: convertirAMayusculas(repartidor.placa),
+      telefono: convertirAMayusculas(repartidor.telefono),
       disponibilidad: repartidor.disponibilidad
     });
     setShowModal(true);
@@ -190,7 +200,7 @@ export default function Repartidores() {
             type="text"
             placeholder="Buscar por nombre, teléfono o placa..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => setSearchTerm(convertirAMayusculas(e.target.value))}
             className="w-full pl-10 pr-4 py-2 bg-dark-bg border border-dark-border rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>

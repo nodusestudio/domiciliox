@@ -100,6 +100,14 @@ const translations = {
 };
 
 const Settings = () => {
+  const convertirAMayusculas = (texto = '') => String(texto ?? '').toUpperCase();
+  const normalizarEmpresa = (empresa = {}) => ({
+    ...empresa,
+    nombre: convertirAMayusculas(empresa.nombre).trim(),
+    telefono: convertirAMayusculas(empresa.telefono).trim(),
+    direccion: convertirAMayusculas(empresa.direccion).trim()
+  });
+
   const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
   const SOUND_SETTING_KEYS = [
     'newOrder',
@@ -212,7 +220,7 @@ const Settings = () => {
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
-        const data = docSnap.data();
+        const data = normalizarEmpresa(docSnap.data());
         setCompanyData(data);
         setEditData(data);
         setLastSync(new Date());
@@ -271,7 +279,7 @@ const Settings = () => {
    * Abre el formulario de edición
    */
   const handleEdit = () => {
-    setEditData({ ...companyData });
+    setEditData(normalizarEmpresa(companyData));
     setIsEditing(true);
   };
 
@@ -279,7 +287,7 @@ const Settings = () => {
    * Cancela la edición y cierra el formulario
    */
   const handleCancel = () => {
-    setEditData({ ...companyData });
+    setEditData(normalizarEmpresa(companyData));
     setIsEditing(false);
   };
 
@@ -290,7 +298,7 @@ const Settings = () => {
     const { name, value } = e.target;
     setEditData(prev => ({
       ...prev,
-      [name]: value
+      [name]: convertirAMayusculas(value)
     }));
   };
 
@@ -306,13 +314,15 @@ const Settings = () => {
       }
 
       setIsSyncing(true);
+      const empresaNormalizada = normalizarEmpresa(editData);
 
       // Guardar datos en Firestore
       const docRef = doc(db, 'configuracion', 'empresa');
-      await setDoc(docRef, editData);
+      await setDoc(docRef, empresaNormalizada);
 
       // Actualizar estado local
-      setCompanyData(editData);
+      setCompanyData(empresaNormalizada);
+      setEditData(empresaNormalizada);
       setIsEditing(false);
       setLastSync(new Date());
       setIsSyncing(false);

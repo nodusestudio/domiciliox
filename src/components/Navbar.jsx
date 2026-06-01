@@ -41,7 +41,7 @@ const Navbar = ({
               <input
                 type="text"
                 value={consultaDireccion}
-                onChange={(e) => setConsultaDireccion(e.target.value)}
+                onChange={(e) => setConsultaDireccion(String(e.target.value || '').toUpperCase())}
                 placeholder="Costo"
                 className="w-[74px] bg-transparent text-[11px] text-white outline-none placeholder:text-gray-500 sm:w-[112px] sm:text-xs"
               />
