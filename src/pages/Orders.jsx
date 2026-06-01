@@ -18,7 +18,7 @@ import {
   batchArchivarPedidos
 } from '../services/firebaseService';
 
-const Orders = () => {
+const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     // Bandera para evitar sobrescritura mientras updateDoc está pendiente
     const [actualizandoPedido, setActualizandoPedido] = useState({});
   const MINUTOS_ALERTA_VALIDOS = [5, 10, 20, 30];
@@ -1332,6 +1332,17 @@ const Orders = () => {
     return Object.values(pedidosPorRepartidor);
   }, [pedidosDelDia]);
 
+  const resumenDestacado = resumenPorRepartidor[0] || null;
+  const resumenSecundario = resumenPorRepartidor.slice(1);
+
+  useEffect(() => {
+    onNavbarSummaryChange(resumenDestacado);
+
+    return () => {
+      onNavbarSummaryChange(null);
+    };
+  }, [onNavbarSummaryChange, resumenDestacado]);
+
   /**
    * Abre el modal de confirmación para cerrar la jornada
    * Inicializa con la fecha y hora actual
@@ -2090,7 +2101,7 @@ const Orders = () => {
 
       {/* Resumen por repartidor */}
       <div className="mt-4 hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-3">
-        {resumenPorRepartidor.map((rep, idx) => (
+        {resumenSecundario.map((rep, idx) => (
           <div key={`${rep.nombre}-${idx}`} className="glass-panel rounded-[20px] p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>

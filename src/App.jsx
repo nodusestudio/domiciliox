@@ -26,6 +26,7 @@ function App() {
   const [consultaDireccion, setConsultaDireccion] = useState('');
   const [loadingSugerenciaCosto, setLoadingSugerenciaCosto] = useState(false);
   const [sugerenciaCosto, setSugerenciaCosto] = useState(null);
+  const [navbarSummary, setNavbarSummary] = useState(null);
   const hasVerifiedConnection = useRef(false);
 
   // Verificar conexión a Firebase al iniciar la app
@@ -73,6 +74,12 @@ function App() {
     };
   }, [activeSection, consultaDireccion]);
 
+  useEffect(() => {
+    if (activeSection !== 'pedidos') {
+      setNavbarSummary(null);
+    }
+  }, [activeSection]);
+
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
@@ -82,7 +89,7 @@ function App() {
       case 'panel':
         return <Dashboard />;
       case 'pedidos':
-        return <Orders />;
+        return <Orders onNavbarSummaryChange={setNavbarSummary} />;
       case 'clientes':
         return <Clients />;
       case 'repartidores':
@@ -122,6 +129,7 @@ function App() {
           setConsultaDireccion={setConsultaDireccion}
           loadingSugerenciaCosto={loadingSugerenciaCosto}
           sugerenciaCosto={sugerenciaCosto}
+          navbarSummary={navbarSummary}
         />
 
         {/* Content Area */}
