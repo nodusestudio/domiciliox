@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { nowBogotaDate } from '../utils/fechaBogota';
 import { Search, TrendingUp, Calendar, DollarSign, Package, Clock, Download, AlertTriangle, TrendingDown, Filter, Database, Target } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
@@ -33,7 +34,11 @@ export default function ClientIntelligence() {
     if (!pedido) return null;
     const candidate = pedido.timestamp || pedido.fecha;
     const fecha = new Date(candidate);
-    return Number.isNaN(fecha.getTime()) ? null : fecha;
+    // Ajustar a Bogotá si es hoy
+    if (!Number.isNaN(fecha.getTime())) {
+      return new Date(fecha.getTime() - (fecha.getTimezoneOffset() * 60000) - (5 * 60 * 60 * 1000));
+    }
+    return null;
   };
 
   const parsePedidoValor = (pedido) => {

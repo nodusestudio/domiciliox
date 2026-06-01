@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Upload, X, FileSpreadsheet, AlertCircle } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 
 const ImportModal = ({ isOpen, onClose, onImport, requiredColumns = ['Nombre', 'Dirección', 'Teléfono'] }) => {
@@ -49,8 +48,9 @@ const ImportModal = ({ isOpen, onClose, onImport, requiredColumns = ['Nombre', '
     setFile(selectedFile);
     
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -141,8 +141,9 @@ const ImportModal = ({ isOpen, onClose, onImport, requiredColumns = ['Nombre', '
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(event.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];

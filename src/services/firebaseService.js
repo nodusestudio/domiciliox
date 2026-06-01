@@ -64,6 +64,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
+import { nowBogotaDate } from '../utils/fechaBogota';
 import toast from 'react-hot-toast';
 
 // ==================== CONFIGURACIÓN ADAPTADOR LOCAL ====================
@@ -87,7 +88,7 @@ const CACHE_TTL = 30000; // 30 segundos de validez
 const CACHE_STALE_TIME = 5 * 60 * 1000; // 5 minutos para considerar muy viejo
 
 const getRangoHoyFirestore = () => {
-  const ahora = new Date();
+  const ahora = nowBogotaDate();
   const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0, 0);
   const fin = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
   return {
@@ -98,7 +99,7 @@ const getRangoHoyFirestore = () => {
 
 const esFechaDeHoy = (fechaValue) => {
   if (!fechaValue) return false;
-  const hoy = new Date();
+  const hoy = nowBogotaDate();
   const toDate = (value) => {
     if (value?.toDate) return value.toDate();
     if (value instanceof Date) return value;

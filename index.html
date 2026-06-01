@@ -2,9 +2,8 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo-domiciliox.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#1e40af" />
+    <link rel="icon" type="image/png" href="./logo-domiciliox.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Sistema de gestión de domicilios para ROAL BURGER - Administra pedidos, clientes y repartidores" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="DomicilioX" />
@@ -21,12 +20,56 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="DomicilioX" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/logo-domiciliox.png" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="apple-touch-icon" href="./logo-domiciliox.png" />
     <title>DomicilioX - Gestión de Domicilios</title>
+    <style>
+      #boot-hint {
+        display: none;
+        max-width: 560px;
+        margin: 48px auto;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+        line-height: 1.5;
+        background: #111827;
+        color: #f9fafb;
+        border: 1px solid #374151;
+        border-radius: 12px;
+      }
+
+      #boot-hint h1 {
+        margin: 0 0 12px;
+        font-size: 20px;
+      }
+
+      #boot-hint p {
+        margin: 0 0 8px;
+      }
+
+      #boot-hint p:last-child {
+        margin-bottom: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-hint">
+      <h1>La app no se puede abrir con este servidor</h1>
+      <p>Este proyecto usa Vite y JSX. Si lo abres con Live Server en el puerto 5500, el navegador recibe <strong>src/main.jsx</strong> sin compilar y la pantalla queda en blanco.</p>
+      <p>Usa <strong>npm run dev</strong> dentro de <strong>domiciliox-main/domiciliox-main</strong> y abre <strong>http://127.0.0.1:4173/</strong>.</p>
+    </div>
+    <script>
+      window.__DOMICILIOX_BOOTED__ = false;
+      window.setTimeout(function () {
+        var root = document.getElementById('root');
+        if (!window.__DOMICILIOX_BOOTED__ && root && root.childElementCount === 0) {
+          var hint = document.getElementById('boot-hint');
+          if (hint) {
+            hint.style.display = 'block';
+          }
+        }
+      }, 1500);
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

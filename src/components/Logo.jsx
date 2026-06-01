@@ -1,19 +1,26 @@
 import React from 'react';
 import { useSettings } from '../hooks/useSettings';
 
-const Logo = ({ className = '' }) => {
+const Logo = ({ className = '', compact = false }) => {
   const { companyName } = useSettings();
+  const initial = companyName.charAt(0) || 'D';
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-        <span className="text-white font-bold text-xl">
-          {companyName.charAt(0)}
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <div className="flex h-10 w-10 items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,rgba(78,205,196,0.9),rgba(255,138,61,0.95))] shadow-[0_16px_32px_rgba(0,0,0,0.28)]">
+        <span className="font-['Space_Grotesk'] text-lg font-bold text-slate-950">
+          {initial}
         </span>
       </div>
-      <span className="text-xl font-bold text-white">
-        {companyName}
-      </span>
+
+      {!compact && (
+        <div className="min-w-0">
+          <div className="surface-label mb-1">Delivery OS</div>
+          <span className="block truncate font-['Space_Grotesk'] text-lg font-bold text-white">
+            {companyName}
+          </span>
+        </div>
+      )}
     </div>
   );
 };

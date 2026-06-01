@@ -19,12 +19,12 @@ export default function Reportes() {
     setFechaInicio(hace7Dias.toISOString().split('T')[0]);
     
     // Cargar historial automáticamente
-    cargarHistorial();
+    cargarHistorial({ silent: true });
     
     // Listener para detectar cambios en localStorage
     const handleStorageChange = (e) => {
       if (e.key === 'historial_jornadas') {
-        cargarHistorial();
+        cargarHistorial({ silent: true });
       }
     };
     
@@ -32,13 +32,15 @@ export default function Reportes() {
     
     // Recargar cuando la ventana vuelve a tener foco
     const handleFocus = () => {
-      cargarHistorial();
+      cargarHistorial({ silent: true });
     };
     
     window.addEventListener('focus', handleFocus);
     
     // Recargar datos cada 5 segundos
-    const interval = setInterval(cargarHistorial, 5000);
+    const interval = setInterval(() => {
+      cargarHistorial({ silent: true });
+    }, 5000);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
@@ -47,15 +49,17 @@ export default function Reportes() {
     };
   }, []);
 
-  const cargarHistorial = () => {
+  const cargarHistorial = ({ silent = false } = {}) => {
     try {
       const datos = JSON.parse(localStorage.getItem('historial_jornadas') || '[]');
       setHistorial(datos);
-      if (datos.length > 0) {
+      if (!silent && datos.length > 0) {
         toast.success(`${datos.length} jornada(s) cargadas`);
       }
     } catch (error) {
-      toast.error('Error al cargar reportes');
+      if (!silent) {
+        toast.error('Error al cargar reportes');
+      }
     }
   };
 

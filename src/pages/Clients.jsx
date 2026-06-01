@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, X, Upload, Download, Cloud, Trash } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
 import ImportModal from '../components/ImportModal';
 import { 
   getClientes, 
@@ -107,7 +106,7 @@ const Clients = () => {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('¿Estás seguro de eliminar este cliente?')) {
+    if (window.confirm('¿Estás seguro de que quieres eliminar este registro de ROAL BURGER? Esta acción no se puede deshacer.')) {
       try {
         await deleteCliente(id);
         await cargarClientes(); // Recargar lista
@@ -215,11 +214,13 @@ const Clients = () => {
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (clientes.length === 0) {
       toast.error('No hay clientes para exportar');
       return;
     }
+
+    const XLSX = await import('xlsx');
 
     const dataToExport = clientes.map(cliente => ({
       Nombre: String(cliente.nombre || ''),

@@ -1,14 +1,12 @@
                   
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, Check, Save, UserPlus, X, Cloud, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarRange, Check, Cloud, Clock3, Filter, Package2, Search, Sparkles, Trash2, TrendingUp, UserPlus, WalletCards, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
 import { 
   getClientes, 
   addCliente, 
   obtenerHistorialCostos, 
   guardarHistorialCosto,
-  consultarCostoSugeridoPorDireccion,
   sincronizarConNube,
   getRepartidores,
   guardarCierreTurno,
@@ -179,9 +177,8 @@ const Orders = () => {
   
   // Estado para filtro de repartidor
   const [filtroRepartidor, setFiltroRepartidor] = useState('');
-  const [consultaDireccion, setConsultaDireccion] = useState('');
-  const [loadingSugerenciaCosto, setLoadingSugerenciaCosto] = useState(false);
-  const [sugerenciaCosto, setSugerenciaCosto] = useState(null);
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [fechaFin, setFechaFin] = useState('');
   
   const [searchTerm, setSearchTerm] = useState('');
   const [clienteSugerencias, setClienteSugerencias] = useState([]);
@@ -217,6 +214,8 @@ const Orders = () => {
     if (!ref) return false;
     return normalizarPedidoId(pedido?.id) === ref || normalizarPedidoId(pedido?.firestoreId) === ref;
   };
+
+  const formatCurrency = (value) => Number(value || 0).toLocaleString();
 
   const deduplicarPedidos = (items = []) => {
     const vistos = new Set();
@@ -724,40 +723,6 @@ const Orders = () => {
     }
   }, [soundSettings]);
 
-  useEffect(() => {
-    const consulta = consultaDireccion.trim();
-    if (consulta.length < 3) {
-      setSugerenciaCosto(null);
-      setLoadingSugerenciaCosto(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingSugerenciaCosto(true);
-
-    const timeoutId = setTimeout(async () => {
-      try {
-        const sugerencia = await consultarCostoSugeridoPorDireccion(consulta);
-        if (!cancelled) {
-          setSugerenciaCosto(sugerencia);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setSugerenciaCosto(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingSugerenciaCosto(false);
-        }
-      }
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [consultaDireccion]);
-
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchTerm(value);
@@ -937,14 +902,31 @@ const Orders = () => {
   };
 
   // Nueva función simple para asignar repartidor
-  const handleAsignarRepartidor = (pedidoId, repartidorId) => {
+  const handleAsignarRepartidor = async (pedidoId, repartidorId) => {
     const horaEvento = getHoraAmPmActual();
+    const pedidoActual = pedidos.find((p) => coincidePedidoId(p, pedidoId));
+    if (!pedidoActual) return;
+
+    const repartidorSeleccionado = (repartidores || []).find((r) => String(r.id) === String(repartidorId));
+    const repartidorNombre = repartidorSeleccionado?.nombre || 'Sin Asignar';
+    const payload = {
+      repartidor_id: repartidorId || null,
+      repartidor_nombre: repartidorNombre,
+      hora_repartidor: horaEvento,
+      metodo_pago: pedidoActual.metodo_pago || '',
+      hora_metodo_pago: pedidoActual.hora_metodo_pago || ''
+    };
+
+    setActualizandoPedido((prev) => ({ ...prev, [String(pedidoId)]: true }));
     setPedidos(prev => {
       const updated = prev.map(p =>
         coincidePedidoId(p, pedidoId)
-          ? { ...p, repartidor_id: repartidorId, hora_repartidor: horaEvento }
+          ? { ...p, ...payload }
           : p
       );
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
       // Generar mensaje si el repartidor es elite
       const repartidor = repartidores.find(r => r.id === repartidorId);
       if (repartidor && repartidor.nombre && repartidor.nombre.toLowerCase().includes('elite')) {
@@ -959,16 +941,58 @@ const Orders = () => {
       }
       return updated;
     });
+
+    try {
+      const idFirestore = pedidoActual.firestoreId || pedidoActual.id;
+      if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
+        await updatePedido(String(idFirestore), payload);
+      }
+    } catch (error) {
+      console.error('❌ Error al guardar repartidor:', error);
+      toast.error('Se asigno localmente, pero no se pudo sincronizar el repartidor.');
+    } finally {
+      setActualizandoPedido((prev) => ({ ...prev, [String(pedidoId)]: false }));
+    }
   };
 
   // Nueva función simple para cambiar método de pago
-  const handleMetodoPagoChange = (pedidoId, metodoPago) => {
+  const handleMetodoPagoChange = async (pedidoId, metodoPago) => {
     const horaEvento = getHoraAmPmActual();
-    setPedidos(prev => prev.map(p =>
-      coincidePedidoId(p, pedidoId)
-        ? { ...p, metodo_pago: metodoPago, hora_metodo_pago: horaEvento }
-        : p
-    ));
+    const pedidoActual = pedidos.find((p) => coincidePedidoId(p, pedidoId));
+    if (!pedidoActual) return;
+
+    const payload = {
+      metodo_pago: metodoPago,
+      hora_metodo_pago: horaEvento,
+      repartidor_id: pedidoActual.repartidor_id || null,
+      repartidor_nombre: pedidoActual.repartidor_nombre || 'Sin Asignar',
+      hora_repartidor: pedidoActual.hora_repartidor || ''
+    };
+
+    setActualizandoPedido((prev) => ({ ...prev, [String(pedidoId)]: true }));
+    setPedidos(prev => {
+      const updated = prev.map(p =>
+        coincidePedidoId(p, pedidoId)
+          ? { ...p, ...payload }
+          : p
+      );
+      localStorage.setItem('pedidos', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify(updated));
+      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      const idFirestore = pedidoActual.firestoreId || pedidoActual.id;
+      if (idFirestore && !String(idFirestore).startsWith('tmp_')) {
+        await updatePedido(String(idFirestore), payload);
+      }
+    } catch (error) {
+      console.error('❌ Error al guardar metodo de pago:', error);
+      toast.error('Se actualizo localmente, pero no se pudo sincronizar el pago.');
+    } finally {
+      setActualizandoPedido((prev) => ({ ...prev, [String(pedidoId)]: false }));
+    }
   };
 
   const toggleEstadoPago = async (id) => {
@@ -997,7 +1021,6 @@ const Orders = () => {
     if (pedidoAntesCambio) {
       const nuevoEstado = pedidoAntesCambio.estadoPago === 'pagado' ? 'pendiente' : 'pagado';
       try {
-        const { updatePedido } = await import('../services/firebaseService');
         const idFirestore = pedidoAntesCambio.firestoreId || pedidoAntesCambio.id;
         if (!idFirestore || String(idFirestore).startsWith('tmp_')) {
           return;
@@ -1018,6 +1041,16 @@ const Orders = () => {
         console.error('❌ Error al actualizar estado de pago:', error);
       }
     }
+  };
+
+  const getClienteDireccion = (cliente) => {
+    if (!cliente) return '-';
+    return cliente.direccion_habitual || cliente.direccion || cliente.domicilio || '-';
+  };
+
+  const getClienteTelefono = (cliente) => {
+    if (!cliente) return '-';
+    return cliente.telefono || cliente.celular || cliente.whatsapp || '-';
   };
 
   const toggleEntregado = async (id) => {
@@ -1199,37 +1232,105 @@ const Orders = () => {
   };
 
   // Pedidos del día actual (orden inverso: más reciente arriba) - excluir archivados
-  const pedidosDelDia = pedidos.filter(p => {
+  const pedidosDelDia = useMemo(() => pedidos.filter((p) => {
     if (!p.fecha) return false;
-    
+
     const hoy = new Date();
     const diaHoy = hoy.getDate();
     const mesHoy = hoy.getMonth() + 1;
     const añoHoy = hoy.getFullYear();
-    
-    // Extraer solo la parte de fecha (DD/MM/YYYY) del campo fecha que tiene formato "DD/MM/YYYY HH:mm"
     const fechaPedido = p.fecha.split(' ')[0];
     const [dia, mes, año] = fechaPedido.split('/').map(Number);
-    
-    const esDiaActual = dia === diaHoy && mes === mesHoy && año === añoHoy;
-    const noArchivado = !p.archivado;
-    
-    // Aplicar filtro de repartidor si está activo
-    if (filtroRepartidor && filtroRepartidor !== '') {
-      return esDiaActual && noArchivado && p.repartidor_id === filtroRepartidor;
-    }
-    
-    return esDiaActual && noArchivado;
-  });
 
-  // Calcular totales para Cierre de Jornada
-  const totalPedidos = pedidosDelDia.length;
-  const totalValorPedidos = pedidosDelDia.reduce((sum, p) => sum + p.valor_pedido, 0);
-  const totalCostosEnvio = pedidosDelDia.reduce((sum, p) => sum + p.costo_envio, 0);
-  const totalVentasPesos = totalValorPedidos;
-  const totalARecibir = pedidosDelDia.reduce((sum, p) => sum + p.total_a_recibir, 0);
-  const totalEfectivo = pedidosDelDia.filter(p => p.metodo_pago === 'Efectivo').reduce((sum, p) => sum + p.total_a_recibir, 0);
-  const totalTarjeta = pedidosDelDia.filter(p => p.metodo_pago === 'Tarjeta').reduce((sum, p) => sum + p.total_a_recibir, 0);
+    const esDiaActual = dia === diaHoy && mes === mesHoy && año === añoHoy;
+    const fechaIsoPedido = `${año}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    const dentroDeRango = (!fechaInicio || fechaIsoPedido >= fechaInicio) && (!fechaFin || fechaIsoPedido <= fechaFin);
+    const noArchivado = !p.archivado;
+
+    if (filtroRepartidor) {
+      return esDiaActual && dentroDeRango && noArchivado && p.repartidor_id === filtroRepartidor;
+    }
+
+    return esDiaActual && dentroDeRango && noArchivado;
+  }), [fechaFin, fechaInicio, filtroRepartidor, pedidos]);
+
+  const {
+    pedidosEntregados,
+    pedidosPagados,
+    totalARecibir,
+    totalCostosEnvio,
+    totalEfectivo,
+    totalPedidos,
+    totalTarjeta,
+    totalValorPedidos,
+    totalVentasPesos
+  } = useMemo(() => {
+    const totals = {
+      totalPedidos: pedidosDelDia.length,
+      totalValorPedidos: 0,
+      totalCostosEnvio: 0,
+      totalVentasPesos: 0,
+      totalARecibir: 0,
+      totalEfectivo: 0,
+      totalTarjeta: 0,
+      pedidosPagados: 0,
+      pedidosEntregados: 0,
+    };
+
+    for (const pedido of pedidosDelDia) {
+      const valorPedido = Number(pedido.valor_pedido || 0);
+      const costoEnvio = Number(pedido.costo_envio || 0);
+      const totalPedido = Number(pedido.total_a_recibir || 0);
+
+      totals.totalValorPedidos += valorPedido;
+      totals.totalCostosEnvio += costoEnvio;
+      totals.totalARecibir += totalPedido;
+
+      if (pedido.metodo_pago === 'Efectivo') {
+        totals.totalEfectivo += totalPedido;
+      }
+
+      if (pedido.metodo_pago === 'Tarjeta' || pedido.metodo_pago === 'Banco') {
+        totals.totalTarjeta += totalPedido;
+      }
+
+      if (pedido.estadoPago === 'pagado') {
+        totals.pedidosPagados += 1;
+      }
+
+      if (pedido.entregado) {
+        totals.pedidosEntregados += 1;
+      }
+    }
+
+    totals.totalVentasPesos = totals.totalValorPedidos;
+    return totals;
+  }, [pedidosDelDia]);
+
+  const resumenPorRepartidor = useMemo(() => {
+    const pedidosPorRepartidor = {};
+
+    pedidosDelDia.forEach((pedido) => {
+      const key = pedido.repartidor_nombre || 'Sin Repartidor';
+
+      if (!pedidosPorRepartidor[key]) {
+        pedidosPorRepartidor[key] = {
+          nombre: key,
+          pedidos: 0,
+          valorPedidos: 0,
+          costos: 0,
+          total: 0
+        };
+      }
+
+      pedidosPorRepartidor[key].pedidos += 1;
+      pedidosPorRepartidor[key].valorPedidos += Number(pedido.valor_pedido || 0);
+      pedidosPorRepartidor[key].costos += Number(pedido.costo_envio || 0);
+      pedidosPorRepartidor[key].total += Number(pedido.total_a_recibir || 0);
+    });
+
+    return Object.values(pedidosPorRepartidor);
+  }, [pedidosDelDia]);
 
   /**
    * Abre el modal de confirmación para cerrar la jornada
@@ -1284,7 +1385,6 @@ const Orders = () => {
       const loadingToast = toast.loading('Guardando jornada...');
 
       // 1. GUARDAR TODOS LOS PEDIDOS EN FIRESTORE (antes de cerrar)
-      const { addPedido } = await import('../services/firebaseService');
       console.log('💾 Guardando', pedidosDelDia.length, 'pedidos en Firestore...');
       
       const promesasPedidos = pedidosDelDia.map(pedido => 
@@ -1351,7 +1451,6 @@ const Orders = () => {
       });
 
       // Guardar en Firestore solo repartidores con pedidos asignados
-      const { addJornadaRepartidor } = await import('../services/firebaseService');
       const promesasRepartidores = Object.values(pedidosPorRepartidor)
         .filter(rep => rep.id_repartidor !== 'sin_asignar')
         .map(rep => addJornadaRepartidor(rep));
@@ -1443,13 +1542,15 @@ const Orders = () => {
    * Formato:
    * Archivo .xlsx con nombre "Reporte_Pedidos_DD-MM-YYYY.xlsx"
    */
-  const handleExportarReporte = () => {
+  const handleExportarReporte = async () => {
     if (pedidosDelDia.length === 0) {
       toast.error('No hay pedidos para exportar');
       return;
     }
 
     try {
+      const XLSX = await import('xlsx');
+
       // Preparar datos para exportar
       const datosExportar = pedidosDelDia.map((pedido, index) => ({
         '#': index + 1,
@@ -1603,9 +1704,9 @@ const Orders = () => {
         pedido.fecha,
         pedido.direccion,
         pedido.telefono,
-        `$${pedido.valorPedido.toLocaleString('es-CO')}`,
-        `$${pedido.costoEnvio.toLocaleString('es-CO')}`,
-        `$${pedido.total.toLocaleString('es-CO')}`,
+        `$${Number(pedido.valor_pedido || 0).toLocaleString('es-CO')}`,
+        `$${Number(pedido.costo_envio || 0).toLocaleString('es-CO')}`,
+        `$${Number(pedido.total_a_recibir || 0).toLocaleString('es-CO')}`,
         pedido.repartidor_nombre || 'Sin Asignar',
         pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente',
         pedido.metodo_pago,
@@ -1639,64 +1740,7 @@ const Orders = () => {
 
   return (
 
-    <div className="space-y-6">
-      {/* Header tipo dashboard con cards */}
-      <div className="w-full grid grid-cols-1 md:grid-cols-5 gap-4 mb-2">
-        {/* Botón Cerrar Turno (ahora primero) */}
-        <div className="bg-orange-600 hover:bg-orange-700 transition-colors flex flex-col items-center justify-center rounded-lg px-4 py-4 min-h-[70px]">
-          <button
-            onClick={handleCerrarTurno}
-            disabled={loadingCierreTurno}
-            className="w-full flex flex-col items-center justify-center text-white font-bold text-base focus:outline-none"
-            style={{ minHeight: '40px' }}
-            title="Cerrar Turno y Guardar Resumen"
-          >
-            {loadingCierreTurno ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mb-1"></div>
-                <span className="text-xs">Cerrando...</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-6 h-6 mb-1" />
-                <span className="uppercase tracking-widest">Cerrar Turno</span>
-              </>
-            )}
-          </button>
-        </div>
-        {/* Consultar Costo por Dirección */}
-        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px] col-span-2">
-          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Consultar Costo por Direccion</span>
-          <input
-            type="text"
-            value={consultaDireccion}
-            onChange={(e) => setConsultaDireccion(e.target.value)}
-            placeholder="boyaca"
-            className="w-full h-[36px] px-3 bg-[#232e3a] border border-dark-border rounded-lg text-base text-white placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
-          />
-          <span className="text-xs text-gray-300 mt-1">
-            {loadingSugerenciaCosto && 'Buscando...'}
-            {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && sugerenciaCosto && (
-              <>
-                Costo sugerido: <span className="text-warning font-bold">${Number(sugerenciaCosto.costoSugerido || 0).toLocaleString()}</span>
-                {sugerenciaCosto.direccionBase && ` · Base: ${sugerenciaCosto.direccionBase}`}
-                {typeof sugerenciaCosto.coincidencias !== 'undefined' && ` · Coincidencias: ${Number(sugerenciaCosto.coincidencias || 0)}`}
-              </>
-            )}
-            {!loadingSugerenciaCosto && consultaDireccion.trim().length >= 3 && !sugerenciaCosto && 'Sin coincidencias.'}
-          </span>
-        </div>
-        {/* Total Costos de Envío */}
-        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px]">
-          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Total Costos de Envio</span>
-          <span className="text-warning font-extrabold text-2xl leading-none">${totalCostosEnvio.toLocaleString()}</span>
-        </div>
-        {/* Total Ventas Pesos */}
-        <div className="bg-dark-card border border-dark-border rounded-lg flex flex-col items-start justify-center px-6 py-4 min-h-[70px]">
-          <span className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-1">Total Ventas Pesos</span>
-          <span className="text-success font-extrabold text-2xl leading-none">${totalVentasPesos.toLocaleString()}</span>
-        </div>
-      </div>
+    <div className="space-y-3">
 
       {/* Alertas Despacho (unchanged) */}
       {alertasDespacho.length > 0 && (
@@ -1736,56 +1780,78 @@ const Orders = () => {
       )}
 
       {/* Buscador con Auto-Insert */}
-      <div className="sticky top-14 z-20 sm:static bg-dark-card/95 sm:bg-dark-card border border-dark-border rounded-lg p-4 sm:p-6 backdrop-blur-sm sm:backdrop-blur-0">
-        <label className="block text-sm font-medium text-white mb-2 sm:mb-3">
-          Buscar Cliente y Crear Pedido
-        </label>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
+      <div className="glass-panel relative z-30 sticky top-3 rounded-[22px] p-3 sm:static sm:p-4">
+        <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="surface-label mb-1.5">Captura rapida</div>
+            <label className="block text-sm font-semibold text-white sm:text-base">
+              Buscar cliente y crear pedido
+            </label>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[minmax(220px,260px)_auto]">
+            <select
+              value={filtroRepartidor}
+              onChange={(e) => setFiltroRepartidor(e.target.value)}
+              className="w-full rounded-[16px] border border-white/10 bg-slate-950/30 px-3 py-2.5 text-xs text-white outline-none transition focus:border-[var(--app-primary)]"
+            >
+              <option value="">Todos los repartidores</option>
+              {(repartidores || []).map(rep => (
+                <option key={rep.id} value={rep.id}>
+                  {rep.nombre}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => setShowModalCliente(true)}
+              className="w-full rounded-[16px] bg-[linear-gradient(135deg,rgba(78,205,196,0.95),rgba(20,184,166,0.92))] px-3 py-2.5 text-xs font-bold text-slate-950 transition hover:brightness-110 sm:w-auto"
+            >
+              Nuevo cliente
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative z-40 flex-1">
             <Search className="absolute left-3 sm:left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
             <input
               type="text"
               placeholder="Escribe el nombre del cliente..."
               value={searchTerm}
               onChange={handleSearchChange}
-              className="w-full pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 bg-[#374151] border border-dark-border rounded-lg text-white text-base sm:text-lg placeholder-gray-400 focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="w-full rounded-[16px] border border-white/10 bg-slate-950/35 py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-400 outline-none transition focus:border-[var(--app-primary)] sm:pl-11"
             />
             
             {/* Sugerencias */}
             {showSugerencias && clienteSugerencias.length > 0 && (
-              <div className="absolute z-10 w-full mt-2 bg-dark-card border border-dark-border rounded-lg shadow-xl max-h-60 overflow-y-auto">
+              <div className="relative z-[80] mt-2 max-h-60 w-full overflow-y-auto rounded-[18px] border border-white/10 bg-[rgba(10,26,38,0.98)] shadow-2xl backdrop-blur-xl">
                 {clienteSugerencias.map((cliente, idx) => (
                   <button
                     key={`${cliente.id || cliente.nombre || 'cliente'}-${idx}`}
                     onClick={() => handleSelectCliente(cliente)}
-                    className="w-full px-4 py-3 text-left hover:bg-[#374151] transition-colors border-b border-dark-border last:border-b-0"
+                    className="w-full border-b border-white/5 px-4 py-3 text-left transition-colors hover:bg-white/5 last:border-b-0"
                   >
                     <div className="font-medium text-white">{cliente.nombre}</div>
-                    <div className="text-sm text-gray-400 mt-1">
-                      {cliente.direccion_habitual} • {cliente.telefono}
+                    <div className="mt-1 text-sm text-gray-400" title={getClienteDireccion(cliente)}>
+                      {getClienteDireccion(cliente)}
+                    </div>
+                    <div className="mt-1 text-xs font-medium tracking-[0.18em] text-[var(--app-primary)] uppercase">
+                      Tel: {getClienteTelefono(cliente)}
                     </div>
                   </button>
                 ))}
               </div>
             )}
           </div>
-          
-          {/* Botón Nuevo Cliente */}
-          <button
-            onClick={() => setShowModalCliente(true)}
-            className="w-full sm:w-auto px-4 py-2.5 sm:py-3 bg-primary hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <UserPlus className="w-5 h-5" />
-            <span>Nuevo Cliente</span>
-          </button>
         </div>
       </div>
 
       {/* Tabla de Pedidos */}
-      <div className="hidden sm:block bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+      <div className="glass-panel relative z-0 hidden overflow-hidden rounded-[22px] sm:block">
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-xs">
-            <thead className="bg-[#374151]">
+            <thead className="bg-white/5">
               <tr>
                 <th className="px-0.5 py-3 w-[40px] text-center text-xs font-semibold text-primary">#</th>
                 <th className="px-0 py-3 w-[108px] text-left text-xs font-semibold text-white">Cliente</th>
@@ -2023,60 +2089,46 @@ const Orders = () => {
       </div>
 
       {/* Resumen por repartidor */}
-      <div className="hidden md:grid mt-6 gap-4 md:grid-cols-2">
-        {(() => {
-          const pedidosPorRepartidor = {};
-          pedidosDelDia.forEach((pedido) => {
-            const key = pedido.repartidor_nombre || 'Sin Repartidor';
-            if (!pedidosPorRepartidor[key]) {
-              pedidosPorRepartidor[key] = {
-                nombre: key,
-                pedidos: 0,
-                valorPedidos: 0,
-                costos: 0,
-                total: 0
-              };
-            }
-            pedidosPorRepartidor[key].pedidos++;
-            pedidosPorRepartidor[key].valorPedidos += pedido.valor_pedido;
-            pedidosPorRepartidor[key].costos += pedido.costo_envio;
-            pedidosPorRepartidor[key].total += pedido.total_a_recibir;
-          });
-          return Object.values(pedidosPorRepartidor).map((rep, idx) => (
-            <div key={idx} className="bg-dark-bg border border-dark-border rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-white text-lg">{rep.nombre}</span>
-                <span className="text-sm text-gray-400">{rep.pedidos} pedido(s)</span>
+      <div className="mt-4 hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-3">
+        {resumenPorRepartidor.map((rep, idx) => (
+          <div key={`${rep.nombre}-${idx}`} className="glass-panel rounded-[20px] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="surface-label mb-1">Repartidor</div>
+                <span className="block text-base font-semibold text-white">{rep.nombre}</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <span className="text-gray-400">Pedidos: </span>
-                  <span className="text-white font-medium">${rep.valorPedidos.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Costos: </span>
-                  <span className="text-warning font-medium">${rep.costos.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Total: </span>
-                  <span className="text-success font-bold">${rep.total.toLocaleString()}</span>
-                </div>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-[var(--app-text-soft)]">
+                {rep.pedidos} pedido(s)
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-[16px] bg-white/5 px-2.5 py-2.5 text-center">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-soft)]">Pedidos</div>
+                <div className="mt-2 font-semibold text-white">${formatCurrency(rep.valorPedidos)}</div>
+              </div>
+              <div className="rounded-[16px] bg-white/5 px-2.5 py-2.5 text-center">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-soft)]">Domicilios</div>
+                <div className="mt-2 font-semibold text-[var(--app-accent)]">${formatCurrency(rep.costos)}</div>
+              </div>
+              <div className="rounded-[16px] bg-white/5 px-2.5 py-2.5 text-center">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-soft)]">Total</div>
+                <div className="mt-2 font-bold text-[var(--app-primary)]">${formatCurrency(rep.total)}</div>
               </div>
             </div>
-          ));
-        })()}
+          </div>
+        ))}
       </div>
 
       {/* Mobile Cards */}
-      <div className="sm:hidden mt-4 space-y-3">
+      <div className="mt-4 space-y-3 sm:hidden">
         {pedidosDelDia.length === 0 ? (
-          <div className="px-4 py-10 text-center bg-dark-card border border-dark-border rounded-lg">
+          <div className="glass-panel rounded-[24px] px-4 py-10 text-center">
             <p className="text-gray-400 text-lg">No hay pedidos registrados hoy</p>
             <p className="text-gray-500 text-sm mt-2">Busca un cliente arriba para crear el primer pedido</p>
           </div>
         ) : (
           pedidosDelDia.map((pedido, index) => (
-            <div key={`${pedido.firestoreId || pedido.id || 'pedido-mobile'}-${pedido.timestamp || pedido.fecha || index}-${index}`} className="bg-dark-card border border-dark-border rounded-lg p-3">
+            <div key={`${pedido.firestoreId || pedido.id || 'pedido-mobile'}-${pedido.timestamp || pedido.fecha || index}-${index}`} className="glass-panel rounded-[24px] p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -2093,15 +2145,15 @@ const Orders = () => {
               </div>
 
               <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
-                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                <div className="rounded-2xl bg-white/5 px-2 py-2 text-center">
                   <div className="text-gray-400">Valor</div>
-                  <div className="text-white font-semibold">${pedido.valor_pedido.toLocaleString()}</div>
+                  <div className="text-white font-semibold">${formatCurrency(pedido.valor_pedido)}</div>
                 </div>
-                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                <div className="rounded-2xl bg-white/5 px-2 py-2 text-center">
                   <div className="text-gray-400">Costo</div>
-                  <div className="text-warning font-semibold">${pedido.costo_envio.toLocaleString()}</div>
+                  <div className="font-semibold text-[var(--app-accent)]">${formatCurrency(pedido.costo_envio)}</div>
                 </div>
-                <div className="bg-dark-bg rounded px-2 py-1 text-center">
+                <div className="rounded-2xl bg-white/5 px-2 py-2 text-center">
                   <div className="text-gray-400">Estado</div>
                   <div className={`font-semibold ${pedido.estadoPago === 'pagado' ? 'text-success' : pedido.estadoPago === 'pendiente' ? 'text-warning' : 'text-gray-400'}`}>
                     {pedido.estadoPago === 'pagado' ? 'Pagado' : pedido.estadoPago === 'pendiente' ? 'Pend.' : '-'}
@@ -2114,7 +2166,7 @@ const Orders = () => {
                   <select
                     value={pedido.repartidor_id || ''}
                     onChange={(e) => handleAsignarRepartidor(obtenerIdPedido(pedido) || pedido.id, e.target.value)}
-                    className="w-full text-xs bg-[#374151] border border-dark-border rounded px-2 py-1 text-gray-200"
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/35 px-2 py-2 text-xs text-gray-200"
                   >
                     <option value="">-</option>
                     {(repartidores || []).map(rep => (
@@ -2128,8 +2180,8 @@ const Orders = () => {
                 <div>
                   <select
                     value={pedido.metodo_pago || ''}
-                    onChange={(e) => handleMetodoPagoChange(pedido.id, e.target.value)}
-                    className="w-full text-xs bg-[#374151] border border-dark-border rounded px-2 py-1 text-gray-200"
+                    onChange={(e) => handleMetodoPagoChange(obtenerIdPedido(pedido) || pedido.id, e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/35 px-2 py-2 text-xs text-gray-200"
                   >
                     <option value="">-</option>
                     <option value="Efectivo">Efectivo</option>
@@ -2167,25 +2219,6 @@ const Orders = () => {
         )}
       </div>
 
-      {/* Filtro de Repartidor (al final, debajo del listado de pedidos) */}
-      <div className="bg-dark-card border border-dark-border rounded-lg p-6 mt-8">
-        <label className="block text-sm font-medium text-white mb-3">
-          🚩 Filtrar por Repartidor
-        </label>
-        <select
-          value={filtroRepartidor}
-          onChange={(e) => setFiltroRepartidor(e.target.value)}
-          className="w-full px-4 py-2 bg-[#374151] border border-dark-border rounded-lg text-white focus:ring-2 focus:ring-primary focus:border-transparent"
-        >
-          <option value="">Todos los repartidores</option>
-          {(repartidores || []).map(rep => (
-            <option key={rep.id} value={rep.id}>
-              {rep.nombre}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {/* Modal Nuevo Pedido */}
       {showModalPedido && clienteSeleccionadoPedido && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -2204,8 +2237,11 @@ const Orders = () => {
             <div className="space-y-3">
               <div className="bg-dark-bg border border-dark-border rounded-lg p-3 text-sm">
                 <p className="text-white font-semibold truncate" title={clienteSeleccionadoPedido.nombre}>{clienteSeleccionadoPedido.nombre}</p>
-                <p className="text-gray-400 truncate" title={clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '-'}>
-                  {clienteSeleccionadoPedido.direccion_habitual || clienteSeleccionadoPedido.direccion || clienteSeleccionadoPedido.domicilio || '-'}
+                <p className="text-gray-400 truncate" title={getClienteDireccion(clienteSeleccionadoPedido)}>
+                  {getClienteDireccion(clienteSeleccionadoPedido)}
+                </p>
+                <p className="mt-1 text-xs font-medium tracking-[0.18em] text-[var(--app-primary)] uppercase" title={getClienteTelefono(clienteSeleccionadoPedido)}>
+                  Tel: {getClienteTelefono(clienteSeleccionadoPedido)}
                 </p>
               </div>
 

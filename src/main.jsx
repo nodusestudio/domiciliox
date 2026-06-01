@@ -6,10 +6,14 @@ import './index.css';
 // Registrar Service Worker sin cache para habilitar notificaciones en segundo plano.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error) => {
       console.warn('⚠️ No se pudo registrar el service worker:', error);
     });
   });
+}
+
+if (typeof window !== 'undefined') {
+  window.__DOMICILIOX_BOOTED__ = true;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
