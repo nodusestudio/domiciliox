@@ -669,9 +669,10 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     // Suscribirse a cambios en pedidos
     const unsubscribe = listenPedidosRealtime((pedidosRealtime) => {
       setPedidos((prev) => {
-        const base = (prev && prev.length > 0) ? prev : obtenerPedidosCache();
-        if ((!pedidosRealtime || pedidosRealtime.length === 0) && base.length > 0) {
-          return deduplicarPedidos(base);
+        const pedidosCache = obtenerPedidosCache();
+        const base = (prev && prev.length > 0) ? prev : pedidosCache;
+        if (!pedidosRealtime || pedidosRealtime.length === 0) {
+          return pedidosCache.length > 0 ? deduplicarPedidos(pedidosCache) : [];
         }
         // Bloquear actualización de fila editada o actualizando
         const idsBloqueados = Object.keys(actualizandoPedido).filter(k => actualizandoPedido[k]);
@@ -1542,7 +1543,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     pedidosEntregados,
     pedidosPagados,
     totalARecibir,
-    totalCostosEnvio,
+    totalDomicilios,
     totalEfectivo,
     totalPedidos,
     totalTarjeta,
@@ -1552,7 +1553,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
     const totals = {
       totalPedidos: pedidosDelDia.length,
       totalValorPedidos: 0,
-      totalCostosEnvio: 0,
+      totalDomicilios: 0,
       totalVentasPesos: 0,
       totalARecibir: 0,
       totalEfectivo: 0,
@@ -1567,7 +1568,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
       const totalPedido = Number(pedido.total_a_recibir || 0);
 
       totals.totalValorPedidos += valorPedido;
-      totals.totalCostosEnvio += costoEnvio;
+      totals.totalDomicilios += costoEnvio;
       totals.totalARecibir += totalPedido;
 
       if (pedido.metodo_pago === 'Efectivo') {
@@ -1602,14 +1603,14 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
           nombre: key,
           pedidos: 0,
           valorPedidos: 0,
-          costos: 0,
+          domicilios: 0,
           total: 0
         };
       }
 
       pedidosPorRepartidor[key].pedidos += 1;
       pedidosPorRepartidor[key].valorPedidos += Number(pedido.valor_pedido || 0);
-      pedidosPorRepartidor[key].costos += Number(pedido.costo_envio || 0);
+      pedidosPorRepartidor[key].domicilios += Number(pedido.costo_envio || 0);
       pedidosPorRepartidor[key].total += Number(pedido.total_a_recibir || 0);
     });
 
@@ -1667,103 +1668,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
    * - Archivar pedidos en historial permanente
    */
   const handleCerrarJornada = async () => {
-    if (pedidosDelDia.length === 0) {
-      toast.error('No hay pedidos para cerrar');
-      return;
-    }
-
-    try {
-      // Cerrar modal inmediatamente
-      setShowModalCierre(false);
-      
-      // Mostrar loading
-      const loadingToast = toast.loading('Guardando jornada...');
-
-      // 1. GUARDAR TODOS LOS PEDIDOS EN FIRESTORE (antes de cerrar)
-      console.log('💾 Guardando', pedidosDelDia.length, 'pedidos en Firestore...');
-      
-      const promesasPedidos = pedidosDelDia.map(pedido => 
-        addPedido({
-          cliente: pedido.cliente,
-          direccion: pedido.direccion,
-          telefono: pedido.telefono,
-          valor_pedido: pedido.valor_pedido,
-          costo_envio: pedido.costo_envio,
-          total_a_recibir: pedido.total_a_recibir,
-          metodo_pago: pedido.metodo_pago,
-          repartidor_id: pedido.repartidor_id,
-          repartidor_nombre: pedido.repartidor_nombre,
-          estadoPago: pedido.estadoPago || '',
-          entregado: pedido.entregado
-        })
-      );
-      
-      await Promise.all(promesasPedidos);
-      console.log('✅ Todos los pedidos guardados en Firestore');
-
-      // 2. Crear objeto de jornada con fecha personalizada
-      const fechaHoraCierre = new Date(`${fechaCierre}T${horaCierre}:00`);
-      const jornada = {
-        id: Date.now(),
-        fecha: fechaHoraCierre.toLocaleDateString('es-ES'),
-        timestamp: fechaHoraCierre.toISOString(),
-        pedidos: pedidosDelDia,
-        totales: {
-          cantidad_pedidos: pedidosDelDia.length,
-          total_valor_pedidos: totalValorPedidos,
-          total_costos_envio: totalCostosEnvio,
-          total_a_recibir: totalARecibir,
-          total_efectivo: totalEfectivo,
-          total_tarjeta: totalTarjeta
-        },
-        cerrada: true
-      };
-
-      // 3. Guardar en historial de jornadas (localStorage para reportes)
-      const historial = JSON.parse(localStorage.getItem('historial_jornadas') || '[]');
-      historial.unshift(jornada);
-      localStorage.setItem('historial_jornadas', JSON.stringify(historial));
-
-      // 4. Guardar jornadas por repartidor en Firestore
-      const pedidosPorRepartidor = {};
-      pedidosDelDia.forEach(pedido => {
-        const key = pedido.repartidor_id || 'sin_asignar';
-        const nombre = pedido.repartidor_nombre || 'Sin Asignar';
-        
-        if (!pedidosPorRepartidor[key]) {
-          pedidosPorRepartidor[key] = {
-            id_repartidor: key,
-            nombre: nombre,
-            total_pedidos_valor: 0,
-            total_costos_envio: 0,
-            cantidad_entregas: 0
-          };
-        }
-        
-        pedidosPorRepartidor[key].total_pedidos_valor += pedido.valor_pedido;
-        pedidosPorRepartidor[key].total_costos_envio += pedido.costo_envio;
-        pedidosPorRepartidor[key].cantidad_entregas++;
-      });
-
-      // Guardar en Firestore solo repartidores con pedidos asignados
-      const promesasRepartidores = Object.values(pedidosPorRepartidor)
-        .filter(rep => rep.id_repartidor !== 'sin_asignar')
-        .map(rep => addJornadaRepartidor(rep));
-      
-      await Promise.all(promesasRepartidores);
-      console.log(`✅ ${promesasRepartidores.length} jornadas de repartidores guardadas en Firestore`);
-
-      // 5. Limpiar pedidos del día para nueva jornada
-      setPedidos([]);
-      localStorage.setItem('pedidos', JSON.stringify([]));
-
-      toast.dismiss(loadingToast);
-      toast.success(`Jornada cerrada: ${pedidosDelDia.length} pedidos guardados`);
-      
-    } catch (error) {
-      console.error('❌ Error al cerrar jornada:', error);
-      toast.error('No se pudo cerrar la jornada. Inténtalo nuevamente.');
-    }
+    await handleCerrarTurno();
   };
 
   /**
@@ -1860,7 +1765,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
         'Dirección': pedido.direccion,
         'Teléfono': pedido.telefono,
         'Valor Pedido': pedido.valor_pedido,
-        'Costo Envío': pedido.costo_envio,
+        'Domicilios': pedido.costo_envio,
         'Total a Recibir': pedido.total_a_recibir,
         'Pago': pedido.metodo_pago,
         'Entregado': pedido.entregado ? 'Sí' : 'No'
@@ -1874,7 +1779,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
         'Dirección': '',
         'Teléfono': 'TOTALES',
         'Valor Pedido': totalValorPedidos,
-        'Costo Envío': totalCostosEnvio,
+        'Domicilios': totalDomicilios,
         'Total a Recibir': totalARecibir,
         'Pago': '',
         'Entregado': ''
@@ -1887,7 +1792,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
         'Dirección': '',
         'Teléfono': 'Efectivo',
         'Valor Pedido': '',
-        'Costo Envío': '',
+        'Domicilios': '',
         'Total a Recibir': totalEfectivo,
         'Pago': '',
         'Entregado': ''
@@ -1900,7 +1805,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
         'Dirección': '',
         'Teléfono': 'Tarjeta',
         'Valor Pedido': '',
-        'Costo Envío': '',
+        'Domicilios': '',
         'Total a Recibir': totalTarjeta,
         'Pago': '',
         'Entregado': ''
@@ -1933,11 +1838,20 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
         return;
       }
 
-      const fechaHoy = new Date().toLocaleDateString('es-ES');
+      const fechaHoraCierre = fechaCierre && horaCierre
+        ? new Date(`${fechaCierre}T${horaCierre}:00`)
+        : new Date();
+      const fechaCierreTurno = Number.isNaN(fechaHoraCierre.getTime())
+        ? new Date()
+        : fechaHoraCierre;
+      const fechaHoy = fechaCierreTurno.toLocaleDateString('es-ES');
+
+      setShowModalCierre(false);
+
       const cierreTurnoData = {
         fecha: fechaHoy,
         total_pedidos: totalPedidos,
-        total_costos_envio: totalCostosEnvio,
+        total_costos_envio: totalDomicilios,
         total_ventas_pesos: totalVentasPesos
       };
 
@@ -1948,12 +1862,17 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
       const jornadaHistorica = {
         id: Date.now(),
         fecha: fechaHoy,
-        timestamp: new Date().toISOString(),
-        pedidos: pedidosDelDia,
+        timestamp: fechaCierreTurno.toISOString(),
+        pedidos: pedidosDelDia.map((pedido) => ({
+          ...pedido,
+          valor_pedido: Number(pedido.valor_pedido || 0),
+          costo_envio: Number(pedido.costo_envio || 0),
+          total_a_recibir: Number(pedido.total_a_recibir || 0)
+        })),
         totales: {
           cantidad_pedidos: totalPedidos,
           total_valor_pedidos: totalValorPedidos,
-          total_costos_envio: totalCostosEnvio,
+          total_costos_envio: totalDomicilios,
           total_a_recibir: totalARecibir,
           total_efectivo: totalEfectivo,
           total_tarjeta: totalTarjeta
@@ -1974,18 +1893,15 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
       );
       if (idsArchivar.length > 0) {
         await batchArchivarPedidos(idsArchivar);
-
-        // Limpieza real en Firebase para que la colección del día quede en cero.
-        await Promise.all(idsArchivar.map((id) => deletePedido(String(id))));
       }
 
-        // Limpiar por completo el estado local para arrancar el turno desde cero.
-        setPedidos([]);
-        localStorage.setItem('pedidos', JSON.stringify([]));
-        localStorage.setItem('pedidos_domicilio', JSON.stringify([]));
-        localStorage.setItem('pedidos_domicilio_cache', JSON.stringify([]));
+      // Limpiar por completo el estado local para arrancar el turno desde cero.
+      setPedidos([]);
+      localStorage.setItem('pedidos', JSON.stringify([]));
+      localStorage.setItem('pedidos_domicilio', JSON.stringify([]));
+      localStorage.setItem('pedidos_domicilio_cache', JSON.stringify([]));
 
-      toast.success('✅ Turno cerrado y guardado en cierres_turno');
+      toast.success('✅ Dia cerrado. Los domicilios quedaron guardados y la jornada nueva arranco vacia');
     } catch (error) {
       console.error('❌ Error al cerrar turno:', error);
       toast.error('Error al cerrar el turno');
@@ -1997,7 +1913,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
   const descargarReporteDelDia = () => {
     try {
       // Crear CSV con los pedidos del día
-      const headers = ['#', 'Cliente', 'Fecha', 'Dirección', 'Teléfono', 'Valor Pedido', 'Costo Envío', 'Total a Recibir', 'Repartidor', 'Estado Pago', 'Método Pago', 'Entregado'];
+      const headers = ['#', 'Cliente', 'Fecha', 'Dirección', 'Teléfono', 'Valor Pedido', 'Domicilios', 'Total a Recibir', 'Repartidor', 'Estado Pago', 'Método Pago', 'Entregado'];
       
       const rows = pedidosDelDia.map((pedido, index) => [
         index + 1,
@@ -2090,7 +2006,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
             </label>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[minmax(220px,260px)_auto]">
+          <div className="grid gap-2 sm:grid-cols-[minmax(220px,260px)_auto_auto]">
             <select
               value={filtroRepartidor}
               onChange={(e) => setFiltroRepartidor(e.target.value)}
@@ -2109,6 +2025,16 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
               className="w-full rounded-[16px] bg-[linear-gradient(135deg,rgba(78,205,196,0.95),rgba(20,184,166,0.92))] px-3 py-2.5 text-xs font-bold text-slate-950 transition hover:brightness-110 sm:w-auto"
             >
               Nuevo cliente
+            </button>
+
+            <button
+              type="button"
+              onClick={abrirModalCierre}
+              disabled={loadingCierreTurno}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-[16px] border border-amber-300/25 bg-amber-500/10 px-3 py-2.5 text-xs font-bold text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              <CalendarRange className="h-4 w-4" />
+              {loadingCierreTurno ? 'Cerrando dia...' : 'Cerrar dia y abrir nuevo'}
             </button>
           </div>
         </div>
@@ -2266,7 +2192,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                 <th className="px-1 py-3 w-[110px] sm:w-[140px] xl:w-[170px] text-left text-xs font-semibold text-white">Dirección</th>
                 <th className="px-1.5 py-3 w-[104px] text-center text-xs font-semibold text-white hidden xl:table-cell">Teléfono</th>
                 <th className="px-1 py-3 w-[92px] text-right text-xs font-semibold text-white">Valor</th>
-                <th className="px-1 py-3 w-[84px] text-right text-xs font-semibold text-white">Costo</th>
+                <th className="px-1 py-3 w-[84px] text-right text-xs font-semibold text-white">Domicilios</th>
                 <th className="px-1 py-3 w-[98px] text-right text-xs font-semibold text-success">Total</th>
                 <th className="px-1.5 py-3 w-[116px] text-center text-xs font-semibold text-white">Repartidor</th>
                 <th className="px-1.5 py-3 w-[86px] text-center text-xs font-semibold text-white">Pago</th>
@@ -2394,7 +2320,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                       )}
                     </td>
                     
-                    {/* Costo Envío */}
+                    {/* Domicilios */}
                     <td 
                       className="px-1 py-2.5 text-right text-gray-300 cursor-pointer hover:bg-dark-border/50"
                       onDoubleClick={(e) => {
@@ -2515,7 +2441,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
               </div>
               <div className="rounded-[16px] bg-white/5 px-2.5 py-2.5 text-center">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-soft)]">Domicilios</div>
-                <div className="mt-2 font-semibold text-[var(--app-accent)]">${formatCurrency(rep.costos)}</div>
+                <div className="mt-2 font-semibold text-[var(--app-accent)]">${formatCurrency(rep.domicilios)}</div>
               </div>
               <div className="rounded-[16px] bg-white/5 px-2.5 py-2.5 text-center">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--app-text-soft)]">Total</div>
@@ -2557,7 +2483,7 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
                   <div className="text-white font-semibold">${formatCurrency(pedido.valor_pedido)}</div>
                 </div>
                 <div className="rounded-2xl bg-white/5 px-2 py-2 text-center">
-                  <div className="text-gray-400">Costo</div>
+                  <div className="text-gray-400">Domicilios</div>
                   <div className="font-semibold text-[var(--app-accent)]">${formatCurrency(pedido.costo_envio)}</div>
                 </div>
                 <div className="rounded-2xl bg-white/5 px-2 py-2 text-center">
@@ -2865,15 +2791,17 @@ const Orders = ({ onNavbarSummaryChange = () => {} }) => {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowModalCierre(false)}
+                  disabled={loadingCierreTurno}
                   className="flex-1 px-4 py-2 bg-dark-bg border border-dark-border text-white rounded-lg hover:bg-dark-border transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleCerrarJornada}
-                  className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                  disabled={loadingCierreTurno}
+                  className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  ✅ Confirmar Cierre
+                  {loadingCierreTurno ? 'Guardando...' : '✅ Confirmar Cierre'}
                 </button>
               </div>
             </div>

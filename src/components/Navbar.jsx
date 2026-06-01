@@ -66,7 +66,7 @@ const Navbar = ({
                 </div>
                 <div className="rounded-[12px] bg-white/5 px-2 py-1 text-center">
                   <div className="text-[9px] uppercase tracking-[0.14em] text-[var(--app-text-soft)]">Domicilios</div>
-                  <div className="mt-0.5 text-xs font-semibold text-[var(--app-accent)]">${Number(navbarSummary.costos || 0).toLocaleString()}</div>
+                  <div className="mt-0.5 text-xs font-semibold text-[var(--app-accent)]">${Number(navbarSummary.domicilios || 0).toLocaleString()}</div>
                 </div>
                 <div className="rounded-[12px] bg-white/5 px-2 py-1 text-center">
                   <div className="text-[9px] uppercase tracking-[0.14em] text-[var(--app-text-soft)]">Total</div>
